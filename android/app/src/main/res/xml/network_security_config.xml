@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 允许所有明文 HTTP 请求（开发环境） -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- 针对服务器 IP 的域名配置 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">47.104.25.40</domain>
+    </domain-config>
+</network-security-config>

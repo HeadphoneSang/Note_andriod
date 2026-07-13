@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Chrome",
+            "type": "dart",
+            "request": "launch",
+            "deviceId": "chrome",
+            "flutterMode": "debug"
+        },
+        {
+            "name": "Chrome (Release)",
+            "type": "dart",
+            "request": "launch",
+            "deviceId": "chrome",
+            "flutterMode": "release"
+        },
+        {
+            "name": "Edge",
+            "type": "dart",
+            "request": "launch",
+            "deviceId": "edge",
+            "flutterMode": "debug"
+        }
+    ]
+}
