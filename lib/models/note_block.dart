@@ -2,7 +2,7 @@
 class NoteBlock {
   final int id;
   final String type;
-  final int orderKey;
+  final String orderKey;
   final dynamic deltaJson;
   final double version;
   final DateTime createdAt;
@@ -11,7 +11,7 @@ class NoteBlock {
   const NoteBlock({
     required this.id,
     required this.type,
-    this.orderKey = 0,
+    this.orderKey = 'a',
     this.deltaJson,
     this.version = 1.0,
     required this.createdAt,
@@ -22,7 +22,7 @@ class NoteBlock {
     return NoteBlock(
       id: json['id'] as int,
       type: json['type'] as String? ?? '',
-      orderKey: json['orderKey'] as int? ?? 0,
+      orderKey: json['orderKey'] as String? ?? "a",
       deltaJson: json['deltaJson'],
       version: (json['version'] as num?)?.toDouble() ?? 1.0,
       createdAt: DateTime.parse(json['createdAt'] as String),
@@ -45,7 +45,7 @@ class NoteBlock {
   NoteBlock copyWith({
     int? id,
     String? type,
-    int? orderKey,
+    String? orderKey,
     dynamic deltaJson,
     double? version,
     DateTime? createdAt,

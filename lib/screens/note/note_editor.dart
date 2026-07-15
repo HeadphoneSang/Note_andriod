@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_quill/flutter_quill.dart';
+import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
+import 'package:note_for_android/models/node_change_event.dart';
 import 'package:provider/provider.dart';
 import '../../core/store/user_store.dart';
 import '../../models/note.dart';
@@ -18,13 +21,72 @@ class NoteEditor extends StatefulWidget {
 
 class _NoteEditorState extends State<NoteEditor> {
   final _titleCtrl = TextEditingController();
-  final _quillCtrl = QuillController.basic();
+  late final EditorState _editorState;
   bool _isSaving = false;
+  bool _isDirty = false;
+  StreamSubscription? _txSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _editorState = EditorState.blank(withInitialText: true);
+
+    // 监听块的每一次变化
+    _txSub = _editorState.transactionStream.listen((event) {
+      final (time, transaction, options) = event;
+      if (time != TransactionTime.after) return;
+
+      _isDirty = true;
+
+      for (final op in transaction.operations) {
+        // final node = _editorState.document.nodeAtPath(op.path);
+        switch (op) {
+          case InsertOperation:
+            op as InsertOperation;
+            for (final node in op.nodes) {
+              NodeChangeEvent event = new NodeChangeEvent(node: node);
+            }
+          case DeleteOperation:
+        }
+      }
+      // if (node != null) {
+      //   //可以通过path找到节点
+      //   NodeChangeEvent nodeEvent = new NodeChangeEvent(node: node);
+      // } else {
+      //   //不能通过path找到节点
+
+      // }
+      // if (op is InsertOperation) {
+      //   print('▸ 新增块 id=$nodeId type=$type path=${op.path}');
+      //   for (final n in op.nodes) {
+      //     print(
+      //       '    → id=${n.id} type=${n.type}: "${n.delta?.toPlainText()}"',
+      //     );
+      //   }
+      // } else if (op is DeleteOperation) {
+      //   print('▸ 删除块 id=$nodeId type=$type path=${op.path}');
+      //   for (final n in op.nodes) {
+      //     print(
+      //       '    → id=${n.id} type=${n.type}: "${n.delta?.toPlainText()}"',
+      //     );
+      //   }
+      // } else if (op is UpdateTextOperation) {
+      //   print('▸ 文本修改 id=$nodeId type=$type path=${op.path}');
+      //   print('    ← "${op.inverted.toPlainText()}"');
+      //   print('    → "${op.delta.toPlainText()}"');
+      // } else if (op is UpdateOperation) {
+      //   print('▸ 属性修改 id=$nodeId type=$type path=${op.path}');
+      //   print('    new: ${op.attributes}');
+      //   print('    old: ${op.oldAttributes}');
+      // }
+    });
+  }
 
   @override
   void dispose() {
+    _txSub?.cancel();
+    _editorState.dispose();
     _titleCtrl.dispose();
-    _quillCtrl.dispose();
     super.dispose();
   }
 
@@ -43,7 +105,8 @@ class _NoteEditorState extends State<NoteEditor> {
       final userId = context.read<UserStore>().user?.id;
       if (userId == null) throw Exception('用户未登录');
 
-      final contentJson = jsonEncode(_quillCtrl.document.toDelta().toJson());
+      // 将编辑器内容转为 JSON 存储
+      final contentJson = jsonEncode(_editorState.document.toJson());
 
       final response = await HttpClient.instance.post<Map<String, dynamic>>(
         '/note',
@@ -120,28 +183,24 @@ class _NoteEditorState extends State<NoteEditor> {
           // 编辑器
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: QuillEditor(
-                controller: _quillCtrl,
-                focusNode: FocusNode(),
-                scrollController: ScrollController(),
-                config: const QuillEditorConfig(
-                  placeholder: '开始写点什么...',
-                  padding: EdgeInsets.only(top: 12),
-                ),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: MobileToolbarV2(
+                editorState: _editorState,
+                toolbarItems: [
+                  textDecorationMobileToolbarItem,
+                  headingMobileToolbarItem,
+                  blocksMobileToolbarItem,
+                  listMobileToolbarItem,
+                  todoListMobileToolbarItem,
+                  codeMobileToolbarItem,
+                  quoteMobileToolbarItem,
+                  dividerMobileToolbarItem,
+                  linkMobileToolbarItem,
+                ],
+                child: AppFlowyEditor(editorState: _editorState),
               ),
             ),
           ),
-          // 工具栏
-          QuillSimpleToolbar(
-            controller: _quillCtrl,
-            config: const QuillSimpleToolbarConfig(
-              showHeaderStyle: false,
-              showListCheck: false,
-              multiRowsDisplay: false,
-            ),
-          ),
-          const Divider(height: 1),
         ],
       ),
     );

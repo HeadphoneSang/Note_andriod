@@ -1,6 +1,6 @@
+import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_quill/flutter_quill.dart';
 import 'package:provider/provider.dart';
 import '../core/store/user_store.dart';
 import '../screens/auth/auth_screen.dart';
@@ -16,15 +16,12 @@ class App extends StatelessWidget {
       create: (_) => UserStore(),
       child: MaterialApp(
         localizationsDelegates: const [
-          ...FlutterQuillLocalizations.localizationsDelegates,
+          AppFlowyEditorLocalizations.delegate,
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        supportedLocales: const [
-          Locale('en'),
-          Locale('zh'),
-        ],
+        supportedLocales: const [Locale('en'), Locale('zh')],
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: const Color.fromARGB(255, 230, 220, 199),
