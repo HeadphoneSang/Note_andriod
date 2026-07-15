@@ -7,7 +7,9 @@ class Notebook {
   final String name;
   final String? description;
   final String? color;
+  final String? avatar;
   final int sortOrder;
+  final int totalNoteCnt;
   final DateTime createdAt;
   final DateTime updatedAt;
   final int userId;
@@ -17,7 +19,9 @@ class Notebook {
     required this.name,
     this.description,
     this.color,
+    this.avatar,
     this.sortOrder = 0,
+    this.totalNoteCnt = 0,
     required this.createdAt,
     required this.updatedAt,
     required this.userId,
@@ -29,7 +33,9 @@ class Notebook {
       name: json['name'] as String? ?? '',
       description: json['description'] as String?,
       color: json['color'] as String?,
+      avatar: json['avatar'] as String?,
       sortOrder: json['sortOrder'] as int? ?? 0,
+      totalNoteCnt: json['totalNoteCnt'] as int? ?? 0,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
       userId: json['userId'] as int,
@@ -42,7 +48,9 @@ class Notebook {
       'name': name,
       'description': description,
       'color': color,
+      'avatar': avatar,
       'sortOrder': sortOrder,
+      'totalNoteCnt': totalNoteCnt,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'userId': userId,
@@ -55,7 +63,9 @@ class Notebook {
     String? name,
     String? description,
     String? color,
+    String? avatar,
     int? sortOrder,
+    int? totalNoteCnt,
     DateTime? createdAt,
     DateTime? updatedAt,
     int? userId,
@@ -65,7 +75,9 @@ class Notebook {
       name: name ?? this.name,
       description: description ?? this.description,
       color: color ?? this.color,
+      avatar: avatar ?? this.avatar,
       sortOrder: sortOrder ?? this.sortOrder,
+      totalNoteCnt: totalNoteCnt ?? this.totalNoteCnt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       userId: userId ?? this.userId,
@@ -73,8 +85,7 @@ class Notebook {
   }
 
   @override
-  String toString() =>
-      'Notebook(id: $id, name: $name, userId: $userId)';
+  String toString() => 'Notebook(id: $id, name: $name, userId: $userId)';
 
   // ──────────────────────────────────────────────
   //  分页查询

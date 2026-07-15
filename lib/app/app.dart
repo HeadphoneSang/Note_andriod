@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:provider/provider.dart';
 import '../core/store/user_store.dart';
 import '../screens/auth/auth_screen.dart';
@@ -13,10 +15,22 @@ class App extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => UserStore(),
       child: MaterialApp(
+        localizationsDelegates: const [
+          ...FlutterQuillLocalizations.localizationsDelegates,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [
+          Locale('en'),
+          Locale('zh'),
+        ],
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color.fromARGB(255, 230, 220, 199),
+          ),
         ),
-        home: const _AppEntry(),
+        home: SafeArea(child: const _AppEntry()),
         onGenerateRoute: AppRouter.onGenerateRoute,
       ),
     );
@@ -35,7 +49,6 @@ class _AppEntryState extends State<_AppEntry> {
   @override
   void initState() {
     super.initState();
-    // 首帧后初始化 UserStore（读本地 token）
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserStore>().init();
     });
@@ -45,7 +58,6 @@ class _AppEntryState extends State<_AppEntry> {
   Widget build(BuildContext context) {
     return Consumer<UserStore>(
       builder: (context, store, child) {
-        // 本地 token 还没读完，显示 loading
         if (!store.initialized) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),

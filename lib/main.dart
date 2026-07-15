@@ -5,7 +5,7 @@ import 'core/store/user_store.dart';
 
 void main() {
   HttpClient.init(
-    baseUrl: 'http://127.0.0.1:8080',
+    baseUrl: 'http://47.104.25.40:8080',
     tokenProvider: TokenProvider(getToken: UserStore.provideToken),
   );
   runApp(const App());

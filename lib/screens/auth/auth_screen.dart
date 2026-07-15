@@ -15,7 +15,7 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   final _accountCtrl = TextEditingController(text: 'test');
-  final _passwordCtrl = TextEditingController(text: '123456');
+  final _passwordCtrl = TextEditingController(text: '123123');
   final _captchaCodeCtrl = TextEditingController();
 
   bool _obscurePassword = true;
