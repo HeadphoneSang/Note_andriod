@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
-import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
 import 'package:note_for_android/models/node_change_event.dart';
 import 'package:provider/provider.dart';
@@ -39,47 +38,86 @@ class _NoteEditorState extends State<NoteEditor> {
       _isDirty = true;
 
       for (final op in transaction.operations) {
-        // final node = _editorState.document.nodeAtPath(op.path);
-        switch (op) {
-          case InsertOperation:
-            op as InsertOperation;
-            for (final node in op.nodes) {
-              NodeChangeEvent event = new NodeChangeEvent(node: node);
-            }
-          case DeleteOperation:
-        }
+        _dispatch(op);
       }
-      // if (node != null) {
-      //   //可以通过path找到节点
-      //   NodeChangeEvent nodeEvent = new NodeChangeEvent(node: node);
-      // } else {
-      //   //不能通过path找到节点
-
-      // }
-      // if (op is InsertOperation) {
-      //   print('▸ 新增块 id=$nodeId type=$type path=${op.path}');
-      //   for (final n in op.nodes) {
-      //     print(
-      //       '    → id=${n.id} type=${n.type}: "${n.delta?.toPlainText()}"',
-      //     );
-      //   }
-      // } else if (op is DeleteOperation) {
-      //   print('▸ 删除块 id=$nodeId type=$type path=${op.path}');
-      //   for (final n in op.nodes) {
-      //     print(
-      //       '    → id=${n.id} type=${n.type}: "${n.delta?.toPlainText()}"',
-      //     );
-      //   }
-      // } else if (op is UpdateTextOperation) {
-      //   print('▸ 文本修改 id=$nodeId type=$type path=${op.path}');
-      //   print('    ← "${op.inverted.toPlainText()}"');
-      //   print('    → "${op.delta.toPlainText()}"');
-      // } else if (op is UpdateOperation) {
-      //   print('▸ 属性修改 id=$nodeId type=$type path=${op.path}');
-      //   print('    new: ${op.attributes}');
-      //   print('    old: ${op.oldAttributes}');
-      // }
     });
+  }
+
+  /// 新增块
+  void _onInsert(NodeChangeEvent event) {
+    debugPrint('$event');
+    debugPrint('${event.isSubNode}');
+  }
+
+  /// 删除块
+  void _onDelete(NodeChangeEvent event) {
+    debugPrint('$event');
+    debugPrint('${event.isSubNode}');
+  }
+
+  /// 文本修改
+  void _onUpdateText(NodeChangeEvent event) {
+    debugPrint('$event');
+    debugPrint('${event.isSubNode}');
+  }
+
+  /// 属性修改
+  void _onUpdateAttr(NodeChangeEvent event) {
+    debugPrint('$event');
+    debugPrint('${event.isSubNode}');
+  }
+
+  /// 分发操作到对应的事件处理方法
+  void _dispatch(Operation op) {
+    switch (op) {
+      case InsertOperation():
+        for (final node in op.nodes) {
+          _onInsert(
+            NodeChangeEvent(
+              changeType: NodeChangeType.insert,
+              node: node,
+              editorState: _editorState,
+              operation: op,
+            ),
+          );
+        }
+
+      case DeleteOperation():
+        for (final node in op.nodes) {
+          _onDelete(
+            NodeChangeEvent(
+              changeType: NodeChangeType.delete,
+              node: node,
+              editorState: _editorState,
+              operation: op,
+            ),
+          );
+        }
+
+      case UpdateTextOperation():
+        final node = _editorState.document.nodeAtPath(op.path);
+        if (node == null) break;
+        _onUpdateText(
+          NodeChangeEvent(
+            changeType: NodeChangeType.updateText,
+            node: node,
+            editorState: _editorState,
+            operation: op,
+          ),
+        );
+
+      case UpdateOperation():
+        final node = _editorState.document.nodeAtPath(op.path);
+        if (node == null) break;
+        _onUpdateAttr(
+          NodeChangeEvent(
+            changeType: NodeChangeType.updateAttr,
+            node: node,
+            editorState: _editorState,
+            operation: op,
+          ),
+        );
+    }
   }
 
   @override
@@ -197,7 +235,12 @@ class _NoteEditorState extends State<NoteEditor> {
                   dividerMobileToolbarItem,
                   linkMobileToolbarItem,
                 ],
-                child: AppFlowyEditor(editorState: _editorState),
+                child: AppFlowyEditor(
+                  editorState: _editorState,
+                  editorStyle: const EditorStyle.mobile(
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
               ),
             ),
           ),
