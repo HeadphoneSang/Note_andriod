@@ -15,13 +15,14 @@ class App extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => UserStore(),
       child: MaterialApp(
+        locale: const Locale('zh', 'CN'),
         localizationsDelegates: const [
           AppFlowyEditorLocalizations.delegate,
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        supportedLocales: const [Locale('en'), Locale('zh')],
+        supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(
             seedColor: const Color.fromARGB(255, 230, 220, 199),
