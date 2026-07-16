@@ -4,6 +4,7 @@ import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:note_for_android/core/network/http_client.dart';
 import 'package:note_for_android/models/node_change_event.dart';
+import 'package:note_for_android/screens/note/widgets/table_toolbar_items.dart';
 import 'package:provider/provider.dart';
 import '../../core/store/user_store.dart';
 import '../../models/note.dart';
@@ -21,72 +22,28 @@ class NoteEditor extends StatefulWidget {
 class _NoteEditorState extends State<NoteEditor> {
   final _titleCtrl = TextEditingController();
   late final EditorState _editorState;
+  late final _tableInsertItem = createTableInsertToolbarItem();
+  late final _tableActionItem = createTableActionToolbarItem();
   bool _isSaving = false;
   bool _isDirty = false;
+  bool _isFlushing = false;
   StreamSubscription? _txSub;
 
-  /// 表格工具栏项
-  late final _tableToolbarItem = MobileToolbarItem.withMenu(
-    itemIconBuilder: (context, editorState, service) => Icon(
-      Icons.table_chart_outlined,
-      color: MobileToolbarTheme.of(context).iconColor,
-      size: 20,
-    ),
-    itemMenuBuilder: (context, editorState, service) {
-      return _TableSizePicker(editorState: editorState);
-    },
-  );
+  int? _noteId; // 创建成功后由后端返回
 
-  /// 表格操作工具栏项（增删行列、设颜色、删除表格）
-  late final _tableActionToolbarItem = MobileToolbarItem.withMenu(
-    itemIconBuilder: (context, editorState, service) {
-      final inTable = _findTableNode(editorState) != null;
-      return Icon(
-        Icons.table_restaurant,
-        color: inTable
-            ? MobileToolbarTheme.of(context).iconColor
-            : MobileToolbarTheme.of(context).iconColor.withValues(alpha: 0.3),
-        size: 20,
-      );
-    },
-    itemMenuBuilder: (context, editorState, service) {
-      final tableNode = _findTableNode(editorState);
-      if (tableNode == null) {
-        return const Center(
-          child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('请先点击表格内的单元格'),
-          ),
-        );
-      }
-      return _TableActionMenu(
-        tableNode: tableNode,
-        editorState: editorState,
-        onAction: () => service.closeItemMenu(),
-      );
-    },
-  );
+  // ── 防抖增量保存 ──
 
-  /// 查找光标所在的表格节点
-  Node? _findTableNode(EditorState editorState) {
-    final selection = editorState.selection;
-    if (selection == null) return null;
-    final node = editorState.getNodeAtPath(selection.start.path);
-    if (node == null) return null;
-    var current = node.parent;
-    while (current != null) {
-      if (current.type == TableBlockKeys.type) return current;
-      current = current.parent;
-    }
-    return null;
-  }
+  Timer? _debounceTimer;
+  static const _debounceDuration = Duration(milliseconds: 1500);
+
+  /// 节点 id(nanoid) → 待同步的块数据
+  final Map<String, _PendingBlock> _pending = {};
 
   @override
   void initState() {
     super.initState();
     _editorState = EditorState.blank(withInitialText: true);
 
-    // 监听块的每一次变化
     _txSub = _editorState.transactionStream.listen((event) {
       final (time, transaction, options) = event;
       if (time != TransactionTime.after) return;
@@ -99,31 +56,17 @@ class _NoteEditorState extends State<NoteEditor> {
     });
   }
 
-  /// 新增块
-  void _onInsert(NodeChangeEvent event) {
-    debugPrint('$event');
-    debugPrint('${event.isSubNode}');
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _txSub?.cancel();
+    _editorState.dispose();
+    _titleCtrl.dispose();
+    super.dispose();
   }
 
-  /// 删除块
-  void _onDelete(NodeChangeEvent event) {
-    debugPrint('$event');
-    debugPrint('${event.isSubNode}');
-  }
+  // ── 事件分发 ──
 
-  /// 文本修改
-  void _onUpdateText(NodeChangeEvent event) {
-    debugPrint('$event');
-    debugPrint('${event.isSubNode}');
-  }
-
-  /// 属性修改
-  void _onUpdateAttr(NodeChangeEvent event) {
-    debugPrint('$event');
-    debugPrint('${event.isSubNode}');
-  }
-
-  /// 分发操作到对应的事件处理方法
   void _dispatch(Operation op) {
     switch (op) {
       case InsertOperation():
@@ -137,7 +80,6 @@ class _NoteEditorState extends State<NoteEditor> {
             ),
           );
         }
-
       case DeleteOperation():
         for (final node in op.nodes) {
           _onDelete(
@@ -149,7 +91,6 @@ class _NoteEditorState extends State<NoteEditor> {
             ),
           );
         }
-
       case UpdateTextOperation():
         final node = _editorState.document.nodeAtPath(op.path);
         if (node == null) break;
@@ -161,7 +102,6 @@ class _NoteEditorState extends State<NoteEditor> {
             operation: op,
           ),
         );
-
       case UpdateOperation():
         final node = _editorState.document.nodeAtPath(op.path);
         if (node == null) break;
@@ -176,13 +116,197 @@ class _NoteEditorState extends State<NoteEditor> {
     }
   }
 
-  @override
-  void dispose() {
-    _txSub?.cancel();
-    _editorState.dispose();
-    _titleCtrl.dispose();
-    super.dispose();
+  void _onInsert(NodeChangeEvent event) {
+    debugPrint('$event');
+    if (event.isSubNode) {
+      return _onUpdateAttr(event);
+    }
+    // 已有 ID 的块（如从其他笔记复制来的）→ PUT 更新，否则标记为新增
+    _pending[event.nodeId] = _PendingBlock(
+      nodeId: event.nodeId,
+      chunkId: event.chunkId,
+      type: event.type,
+      deltaJson: _extractDeltaJson(event.node),
+      orderKey: event.chunkOrderKey,
+      changeType: event.chunkId != null
+          ? NodeChangeType.updateAttr
+          : NodeChangeType.insert,
+    );
+    _debounce();
   }
+
+  void _onDelete(NodeChangeEvent event) {
+    debugPrint('$event');
+    if (event.isSubNode) {
+      return _onUpdateAttr(event);
+    }
+    // 标记删除，即使 chunkId 为 null（新建后未保存就删除）也要记录
+    _pending[event.nodeId] = _PendingBlock(
+      nodeId: event.nodeId,
+      chunkId: event.chunkId,
+      changeType: NodeChangeType.delete,
+    );
+    _debounce();
+  }
+
+  void _onUpdateText(NodeChangeEvent event) {
+    debugPrint('$event');
+    // 新块还没 ID → 按 insert 处理
+    if (event.chunkId == null) {
+      _onInsert(event);
+      return;
+    }
+    _pending[event.nodeId] = _PendingBlock(
+      nodeId: event.nodeId,
+      chunkId: event.chunkId,
+      type: event.type,
+      deltaJson: _extractDeltaJson(event.node),
+      orderKey: event.chunkOrderKey,
+      changeType: NodeChangeType.updateText,
+      version: event.chunkVersion,
+    );
+    _debounce();
+  }
+
+  void _onUpdateAttr(NodeChangeEvent event) {
+    debugPrint('$event');
+    if (event.chunkId == null) {
+      _onInsert(event);
+      return;
+    }
+    // 已经有 pending 记录且是 insert → 保持 insert 状态
+    final existing = _pending[event.nodeId];
+    if (existing != null && existing.changeType == NodeChangeType.insert) {
+      return;
+    }
+    _pending[event.nodeId] = _PendingBlock(
+      nodeId: event.nodeId,
+      chunkId: event.chunkId,
+      type: event.type,
+      deltaJson: _extractDeltaJson(event.node),
+      orderKey: event.chunkOrderKey,
+      changeType: NodeChangeType.updateAttr,
+      version: event.chunkVersion,
+    );
+    _debounce();
+  }
+
+  /// 从 Node 提取完整 delta JSON
+  String _extractDeltaJson(Node node) {
+    final delta = node.attributes[blockComponentDelta];
+    return jsonEncode(
+      delta ??
+          [
+            {'insert': '\n'},
+          ],
+    );
+  }
+
+  // ── 防抖 ──
+
+  void _debounce() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_debounceDuration, _flushPending);
+  }
+
+  /// 将累积的待同步变更发送到后端
+  Future<void> _flushPending() async {
+    debugPrint("提交修改");
+    if (_pending.isEmpty || _isFlushing) return;
+    _isFlushing = true;
+
+    // 还没有笔记 ID → 先自动创建笔记，拿到 _noteId
+    if (_noteId == null) {
+      try {
+        final userId = context.read<UserStore>().user?.id;
+        if (userId == null) throw Exception('用户未登录');
+
+        final title = _titleCtrl.text.trim();
+        final response = await HttpClient.instance.post<Map<String, dynamic>>(
+          '/note',
+          data: {
+            'title': title.isNotEmpty ? title : '未命名笔记',
+            'userId': userId,
+            'notebookId': widget.notebookId,
+          },
+        );
+        if (response.code == 200 && response.data != null) {
+          _noteId = response.data!['id'] as int;
+        } else {
+          throw Exception(response.message ?? '创建笔记失败');
+        }
+      } catch (e) {
+        debugPrint('创建笔记失败: $e');
+        _isFlushing = false;
+        return; // 本次不提交块变更，下次防抖重试
+      }
+    }
+
+    try {
+      final batch = Map<String, _PendingBlock>.from(_pending);
+      _pending.clear();
+
+      for (final entry in batch.entries) {
+        final block = entry.value;
+        try {
+          switch (block.changeType) {
+            case NodeChangeType.insert:
+              await _createBlock(block);
+            case NodeChangeType.delete:
+              if (block.chunkId != null) {
+                await _deleteBlock(block.chunkId!);
+              }
+            case NodeChangeType.updateText:
+            case NodeChangeType.updateAttr:
+              if (block.chunkId != null) {
+                await _updateBlock(block);
+              }
+          }
+        } catch (e) {
+          debugPrint('同步失败: ${block.nodeId} → $e');
+          _pending[entry.key] = block;
+        }
+      }
+    } finally {
+      _isFlushing = false;
+      if (_pending.isNotEmpty) {
+        _debounce();
+      }
+    }
+  }
+
+  Future<void> _createBlock(_PendingBlock block) async {
+    // TODO: 替换为实际 API
+    // final resp = await HttpClient.instance.post<Map<String, dynamic>>(
+    //   '/blocks',
+    //   data: {
+    //     'noteId': _noteId,
+    //     'type': block.type,
+    //     'deltaJson': block.deltaJson,
+    //     'orderKey': block.orderKey,
+    //   },
+    // );
+    // if (resp.code == 200 && resp.data != null) {
+    //   // 把后端返回的 ID 写回 Node 的 attributes，下次修改就知道是已有块了
+    //   final node = _editorState.document.nodeAtPath([...]);
+    //   node?.attributes[NoteDocumentConvert.attrBlockId] = resp.data!['id'];
+    //   node?.attributes[NoteDocumentConvert.attrBlockVersion] = resp.data!['version'];
+    // }
+    debugPrint('创建块: ${block.type}');
+  }
+
+  Future<void> _deleteBlock(int chunkId) async {
+    // TODO: DELETE /blocks/$chunkId
+    debugPrint('删除块: id=$chunkId');
+  }
+
+  Future<void> _updateBlock(_PendingBlock block) async {
+    // TODO: PUT /blocks/${block.chunkId}
+    // data: { type, deltaJson, orderKey, version(乐观锁) }
+    debugPrint('更新块: id=${block.chunkId}');
+  }
+
+  // ── 保存 ──
 
   Future<void> _saveNote() async {
     final title = _titleCtrl.text.trim();
@@ -193,34 +317,29 @@ class _NoteEditorState extends State<NoteEditor> {
       return;
     }
 
+    // 先等防抖提交所有待同步变更（如果还没创建笔记，会自动创建）
+    _debounceTimer?.cancel();
+    await _flushPending();
+
+    if (_noteId == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('保存失败'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
-      final userId = context.read<UserStore>().user?.id;
-      if (userId == null) throw Exception('用户未登录');
-
-      // 将编辑器内容转为 JSON 存储
-      final contentJson = jsonEncode(_editorState.document.toJson());
-
-      final response = await HttpClient.instance.post<Map<String, dynamic>>(
-        '/note',
-        data: {
-          'title': title,
-          'content': contentJson,
-          'userId': userId,
-          'notebookId': widget.notebookId,
-        },
+      // 更新标题
+      final response = await HttpClient.instance.put<Map<String, dynamic>>(
+        '/note/$_noteId',
+        data: {'title': title},
       );
-
       if (response.code == 200 && response.data != null) {
         final note = Note.fromJson(response.data!);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('笔记「${note.title}」已保存'),
-            backgroundColor: Colors.green,
-          ),
-        );
         Navigator.pop(context, note);
       } else {
         throw Exception(response.message ?? '保存失败');
@@ -237,6 +356,8 @@ class _NoteEditorState extends State<NoteEditor> {
       if (mounted) setState(() => _isSaving = false);
     }
   }
+
+  // ── 构建 ──
 
   @override
   Widget build(BuildContext context) {
@@ -258,7 +379,6 @@ class _NoteEditorState extends State<NoteEditor> {
       ),
       body: Column(
         children: [
-          // 标题输入
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: TextField(
@@ -273,37 +393,41 @@ class _NoteEditorState extends State<NoteEditor> {
             ),
           ),
           const Divider(height: 1),
-
-          // 编辑器
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: MobileToolbarV2(
-                editorState: _editorState,
-                toolbarItems: [
-                  textDecorationMobileToolbarItem,
-                  headingMobileToolbarItem,
-                  blocksMobileToolbarItem,
-                  listMobileToolbarItem,
-                  todoListMobileToolbarItem,
-                  codeMobileToolbarItem,
-                  quoteMobileToolbarItem,
-                  dividerMobileToolbarItem,
-                  linkMobileToolbarItem,
-                  _tableToolbarItem,
-                  _tableActionToolbarItem,
-                  buildTextAndBackgroundColorMobileToolbarItem(),
-                ],
-                child: InteractiveViewer(
-                  minScale: 0.5,
-                  maxScale: 3.0,
-                  child: AppFlowyEditor(
+              child: Column(
+                children: [
+                  MobileToolbar(
                     editorState: _editorState,
-                    editorStyle: const EditorStyle.mobile(
-                      padding: EdgeInsets.zero,
+                    toolbarItems: [
+                      textDecorationMobileToolbarItem,
+                      headingMobileToolbarItem,
+                      blocksMobileToolbarItem,
+                      listMobileToolbarItem,
+                      todoListMobileToolbarItem,
+                      codeMobileToolbarItem,
+                      quoteMobileToolbarItem,
+                      dividerMobileToolbarItem,
+                      linkMobileToolbarItem,
+                      _tableInsertItem,
+                      _tableActionItem,
+                      buildTextAndBackgroundColorMobileToolbarItem(),
+                    ],
+                  ),
+                  Expanded(
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 3.0,
+                      child: AppFlowyEditor(
+                        editorState: _editorState,
+                        editorStyle: const EditorStyle.mobile(
+                          padding: EdgeInsets.zero,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -313,352 +437,23 @@ class _NoteEditorState extends State<NoteEditor> {
   }
 }
 
-/// 表格尺寸选择器
-class _TableSizePicker extends StatefulWidget {
-  final EditorState editorState;
+/// 待同步的块变更
+class _PendingBlock {
+  final String nodeId;
+  final int? chunkId;
+  final String? type;
+  final String? deltaJson;
+  final String? orderKey;
+  final NodeChangeType changeType;
+  final double version;
 
-  const _TableSizePicker({required this.editorState});
-
-  @override
-  State<_TableSizePicker> createState() => _TableSizePickerState();
-}
-
-class _TableSizePickerState extends State<_TableSizePicker> {
-  int _rows = 1;
-  int _cols = 1;
-  static const int _maxRows = 8;
-  static const int _maxCols = 8;
-
-  void _insertTable() {
-    final selection = widget.editorState.selection;
-    if (selection == null) return;
-
-    final rows = List.generate(_rows, (_) => List.filled(_cols, ''));
-    final table = TableNode.fromList<String>(rows);
-
-    final transaction = widget.editorState.transaction;
-    transaction.insertNode(selection.start.path.next, table.node);
-    widget.editorState.apply(transaction);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final style = MobileToolbarTheme.of(context);
-    const spacing = 3.0;
-
-    return Padding(
-      padding: EdgeInsets.all(style.buttonSpacing),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 网格
-          GestureDetector(
-            onPanStart: (d) => _updateSize(d.localPosition),
-            onPanUpdate: (d) => _updateSize(d.localPosition),
-            onPanEnd: (_) => _insertTable(),
-            child: GridView.count(
-              crossAxisCount: _maxCols,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: spacing,
-              crossAxisSpacing: spacing,
-              childAspectRatio: 1,
-              children: List.generate(_maxRows * _maxCols, (i) {
-                final row = i ~/ _maxCols;
-                final col = i % _maxCols;
-                final selected = row < _rows && col < _cols;
-
-                return Container(
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? style.primaryColor.withValues(alpha: 0.3)
-                        : style.itemOutlineColor,
-                    borderRadius: BorderRadius.circular(3),
-                    border: selected
-                        ? Border.all(color: style.primaryColor, width: 1.5)
-                        : null,
-                  ),
-                );
-              }),
-            ),
-          ),
-          const SizedBox(height: 8),
-          // 文字提示
-          Text(
-            '${_rows} × $_cols',
-            style: TextStyle(
-              fontSize: 14,
-              color: style.foregroundColor,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          // 确认按钮
-          SizedBox(
-            width: double.infinity,
-            height: style.buttonHeight,
-            child: ElevatedButton(
-              onPressed: _insertTable,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: style.primaryColor,
-                foregroundColor: style.onPrimaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(style.borderRadius),
-                ),
-              ),
-              child: const Text(
-                '插入表格',
-                style: TextStyle(fontSize: 14),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _updateSize(Offset localPos) {
-    const totalCell = 27.0; // cellSize + spacing
-    final col = (localPos.dx / totalCell).floor().clamp(0, _maxCols - 1);
-    final row = (localPos.dy / totalCell).floor().clamp(0, _maxRows - 1);
-    setState(() {
-      _rows = row + 1;
-      _cols = col + 1;
-    });
-  }
-}
-
-/// 表格操作菜单
-class _TableActionMenu extends StatefulWidget {
-  final Node tableNode;
-  final EditorState editorState;
-  final VoidCallback onAction;
-
-  const _TableActionMenu({
-    required this.tableNode,
-    required this.editorState,
-    required this.onAction,
+  const _PendingBlock({
+    required this.nodeId,
+    this.chunkId,
+    this.type,
+    this.deltaJson,
+    this.orderKey,
+    required this.changeType,
+    this.version = 1.0,
   });
-
-  @override
-  State<_TableActionMenu> createState() => _TableActionMenuState();
-}
-
-class _TableActionMenuState extends State<_TableActionMenu> {
-  int get _colsLen => widget.tableNode.attributes[TableBlockKeys.colsLen] as int;
-
-  @override
-  Widget build(BuildContext context) {
-    final style = MobileToolbarTheme.of(context);
-
-    return Padding(
-      padding: EdgeInsets.all(style.buttonSpacing),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 列操作
-          _sectionTitle('列操作'),
-          _actionRow(context, [
-            _actionBtn(context, '前插入列', Icons.first_page, () {
-              TableActions.add(widget.tableNode, 0, widget.editorState, TableDirection.col);
-              widget.onAction();
-            }),
-            _actionBtn(context, '后插入列', Icons.last_page, () {
-              TableActions.add(widget.tableNode, _colsLen, widget.editorState, TableDirection.col);
-              widget.onAction();
-            }),
-            _actionBtn(context, '删除列', Icons.delete_outline, () {
-              final cell = _currentCell();
-              if (cell != null) {
-                final col = cell.attributes[TableCellBlockKeys.colPosition] as int;
-                TableActions.delete(widget.tableNode, col, widget.editorState, TableDirection.col);
-              }
-              widget.onAction();
-            }),
-          ]),
-          const SizedBox(height: 8),
-          // 行操作
-          _sectionTitle('行操作'),
-          _actionRow(context, [
-            _actionBtn(context, '前插入行', Icons.vertical_align_top, () {
-              final cell = _currentCell();
-              if (cell != null) {
-                final row = cell.attributes[TableCellBlockKeys.rowPosition] as int;
-                TableActions.add(widget.tableNode, row, widget.editorState, TableDirection.row);
-              }
-              widget.onAction();
-            }),
-            _actionBtn(context, '后插入行', Icons.vertical_align_bottom, () {
-              final cell = _currentCell();
-              if (cell != null) {
-                final row = (cell.attributes[TableCellBlockKeys.rowPosition] as int) + 1;
-                TableActions.add(widget.tableNode, row, widget.editorState, TableDirection.row);
-              }
-              widget.onAction();
-            }),
-            _actionBtn(context, '删除行', Icons.remove_circle_outline, () {
-              final cell = _currentCell();
-              if (cell != null) {
-                final row = cell.attributes[TableCellBlockKeys.rowPosition] as int;
-                TableActions.delete(widget.tableNode, row, widget.editorState, TableDirection.row);
-              }
-              widget.onAction();
-            }),
-          ]),
-          const SizedBox(height: 8),
-          // 背景色
-          _sectionTitle('背景色'),
-          _actionRow(context, [
-            _actionBtn(context, '设置列背景', Icons.format_color_fill, () {
-              final cell = _currentCell();
-              if (cell != null) {
-                final col = cell.attributes[TableCellBlockKeys.colPosition] as int;
-                _showColorPicker(context, (color) {
-                  TableActions.setBgColor(widget.tableNode, col, widget.editorState, color, TableDirection.col);
-                  widget.onAction();
-                });
-              }
-            }),
-            _actionBtn(context, '设置行背景', Icons.format_color_fill, () {
-              final cell = _currentCell();
-              if (cell != null) {
-                final row = cell.attributes[TableCellBlockKeys.rowPosition] as int;
-                _showColorPicker(context, (c) {
-                  TableActions.setBgColor(widget.tableNode, row, widget.editorState, c, TableDirection.row);
-                  widget.onAction();
-                });
-              }
-            }),
-          ]),
-          const Divider(height: 16),
-          // 删除表格
-          SizedBox(
-            width: double.infinity,
-            child: TextButton.icon(
-              onPressed: () {
-                final transaction = widget.editorState.transaction;
-                if (widget.editorState.document.root.children.length == 1) {
-                  transaction.insertNode(widget.tableNode.path, paragraphNode());
-                }
-                transaction.deleteNode(widget.tableNode);
-                widget.editorState.apply(transaction);
-                widget.onAction();
-              },
-              icon: const Icon(Icons.delete_forever, color: Colors.red),
-              label: const Text('删除表格', style: TextStyle(color: Colors.red)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _sectionTitle(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          color: MobileToolbarTheme.of(context).foregroundColor.withValues(alpha: 0.6),
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  Widget _actionRow(BuildContext context, List<Widget> buttons) {
-    return Row(
-      children: buttons
-          .map((b) => Expanded(child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: b,
-          )))
-          .toList(),
-    );
-  }
-
-  Widget _actionBtn(BuildContext context, String label, IconData icon, VoidCallback onTap) {
-    final style = MobileToolbarTheme.of(context);
-    return SizedBox(
-      height: style.buttonHeight,
-      child: OutlinedButton(
-        onPressed: onTap,
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          side: BorderSide(color: style.itemOutlineColor),
-          foregroundColor: style.foregroundColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(style.borderRadius),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16),
-            Text(label, style: const TextStyle(fontSize: 10)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Node? _currentCell() {
-    final selection = widget.editorState.selection;
-    if (selection == null) return null;
-    final node = widget.editorState.getNodeAtPath(selection.start.path);
-    if (node == null) return null;
-    var current = node.parent;
-    while (current != null) {
-      if (current.type == TableCellBlockKeys.type) return current;
-      current = current.parent;
-    }
-    return null;
-  }
-
-  void _showColorPicker(BuildContext context, void Function(String?) onColor) {
-    final style = MobileToolbarTheme.of(context);
-    final colors = [
-      null, '#FF0000', '#FF4500', '#FF8C00', '#FFD700',
-      '#ADFF2F', '#00FF00', '#00CED1', '#1E90FF', '#4169E1',
-      '#8A2BE2', '#FF69B4', '#C0C0C0', '#808080',
-    ];
-
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => Container(
-        padding: EdgeInsets.all(style.buttonSpacing),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('选择颜色', style: TextStyle(fontWeight: FontWeight.w600, color: style.foregroundColor)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: colors.map((hex) => GestureDetector(
-                onTap: () {
-                  onColor(hex);
-                  Navigator.pop(context);
-                },
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: hex != null ? Color(int.parse(hex.replaceFirst('#', '0xFF'))) : Colors.white,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: style.itemOutlineColor),
-                  ),
-                  child: hex == null
-                      ? Icon(Icons.close, size: 16, color: style.foregroundColor)
-                      : null,
-                ),
-              )).toList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

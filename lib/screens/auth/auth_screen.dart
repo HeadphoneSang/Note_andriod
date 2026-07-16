@@ -215,13 +215,13 @@ class _AuthScreenState extends State<AuthScreen> {
 
                   // 4. 验证码
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       // 验证码图片
                       GestureDetector(
                         onTap: _fetchCaptcha,
                         child: Container(
-                          width: 120,
+                          width: 130,
                           height: 56,
                           margin: const EdgeInsets.only(top: 4),
                           decoration: BoxDecoration(
