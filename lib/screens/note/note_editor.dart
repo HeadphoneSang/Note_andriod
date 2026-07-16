@@ -1,13 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
-import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
-import 'package:note_for_android/models/node_change_event.dart';
+import 'package:note_for_android/screens/note/mixins/incremental_save.dart';
 import 'package:note_for_android/screens/note/widgets/table_toolbar_items.dart';
-import 'package:provider/provider.dart';
-import '../../core/store/user_store.dart';
 import '../../models/note.dart';
 
 /// 新建笔记页面 — 从底部弹出
@@ -25,389 +21,41 @@ class _NoteEditorState extends State<NoteEditor> {
   late final EditorState _editorState;
   late final _tableInsertItem = createTableInsertToolbarItem();
   late final _tableActionItem = createTableActionToolbarItem();
+  late final IncrementalSaveService _saveService;
   bool _isSaving = false;
   bool _isDirty = false;
-  bool _isFlushing = false;
   StreamSubscription? _txSub;
-
-  int? _noteId; // 创建成功后由后端返回
-
-  // ── 防抖增量保存 ──
-
-  Timer? _debounceTimer;
-  static const _debounceDuration = Duration(milliseconds: 10000);
-
-  /// 节点 id(nanoid) → 待同步的块数据
-  final Map<String, _PendingBlock> _pending = {};
 
   @override
   void initState() {
     super.initState();
     _editorState = EditorState.blank(withInitialText: true);
 
+    _saveService = IncrementalSaveService(
+      editorState: _editorState,
+      titleCtrl: _titleCtrl,
+      provideNotebookId: () => widget.notebookId,
+      provideContext: () => context,
+      onDirty: () => _isDirty = true,
+    );
+
     _txSub = _editorState.transactionStream.listen((event) {
-      final (time, transaction, options) = event;
+      final (time, transaction, _) = event;
       if (time != TransactionTime.after) return;
-
       _isDirty = true;
-
       for (final op in transaction.operations) {
-        _dispatch(op);
+        _saveService.dispatch(op);
       }
     });
   }
 
   @override
   void dispose() {
-    _debounceTimer?.cancel();
+    _saveService.cancelDebounce();
     _txSub?.cancel();
     _editorState.dispose();
     _titleCtrl.dispose();
     super.dispose();
-  }
-
-  // ── 事件分发 ──
-
-  void _dispatch(Operation op) {
-    switch (op) {
-      case InsertOperation():
-        for (final node in op.nodes) {
-          _onInsert(
-            NodeChangeEvent(
-              changeType: NodeChangeType.insert,
-              node: node,
-              editorState: _editorState,
-              operation: op,
-            ),
-          );
-        }
-      case DeleteOperation():
-        for (final node in op.nodes) {
-          _onDelete(
-            NodeChangeEvent(
-              changeType: NodeChangeType.delete,
-              node: node,
-              editorState: _editorState,
-              operation: op,
-            ),
-          );
-        }
-      case UpdateTextOperation():
-        final node = _editorState.document.nodeAtPath(op.path);
-        if (node == null) break;
-        _onUpdateText(
-          NodeChangeEvent(
-            changeType: NodeChangeType.updateText,
-            node: node,
-            editorState: _editorState,
-            operation: op,
-          ),
-        );
-      case UpdateOperation():
-        final node = _editorState.document.nodeAtPath(op.path);
-        if (node == null) break;
-        _onUpdateAttr(
-          NodeChangeEvent(
-            changeType: NodeChangeType.updateAttr,
-            node: node,
-            editorState: _editorState,
-            operation: op,
-          ),
-        );
-    }
-  }
-
-  /// 二分分配OrderKey
-  void _binaryAssignOrderKey(
-    List<Node> rangeNode,
-    int leftIndex,
-    int rightIndex,
-    String? leftOrderKey,
-    String? rightOrderkey,
-  ) {
-    // 边界条件
-    if (leftIndex > rightIndex) return;
-    assert(leftIndex >= 0);
-    assert(rightIndex < rangeNode.length);
-    // 中点分配
-    int mid = (leftIndex + rightIndex) ~/ 2;
-
-    //计算中间的key
-    String orderKey = NoteDocumentConvert.generateOrderKey(
-      leftOrderKey,
-      rightOrderkey,
-    );
-    rangeNode[mid].attributes[NoteDocumentConvert.attrBlockOrderKey] = orderKey;
-    debugPrint("给节点${rangeNode[mid].path}分配的OrderKey${orderKey}");
-
-    // 左边分配
-    _binaryAssignOrderKey(
-      rangeNode,
-      leftIndex,
-      mid - 1,
-      leftOrderKey,
-      orderKey,
-    );
-    // 右边分配
-    _binaryAssignOrderKey(
-      rangeNode,
-      mid + 1,
-      rightIndex,
-      orderKey,
-      rightOrderkey,
-    );
-  }
-
-  void _assignOrderKeyForRange(NodeChangeEvent event) {
-    debugPrint("为节点$event 创建orderkey");
-    late final String? startOrderKey;
-    late final String? endOrderKey;
-    List<Node> preNulls = [];
-    List<Node> allNulls = [];
-    Node? preNode = event.previousNode;
-    Node? nextNode = event.nextNode;
-    // 获得当前节点前面所有没有orderKey的节点
-    while (preNode != null &&
-        preNode.attributes[NoteDocumentConvert.attrBlockOrderKey] == null) {
-      preNulls.add(preNode);
-      preNode = preNode.previous;
-    }
-    if (preNode == null) {
-      //特殊情况处理，最顶层的节点没有orderkey，只有一种可能，就是当前插入的块是插在了文章的开头。
-      startOrderKey = null;
-    } else {
-      startOrderKey = preNode.attributes[NoteDocumentConvert.attrBlockOrderKey];
-    }
-    //倒插进列表
-    allNulls.addAll(preNulls.reversed);
-    //把自己插到中间
-    allNulls.add(event.rootNode!);
-    //找到当前节点后面的null节点
-    while (nextNode != null &&
-        nextNode.attributes[NoteDocumentConvert.attrBlockOrderKey] == null) {
-      allNulls.add(nextNode);
-      nextNode = nextNode.next;
-    }
-    if (nextNode == null) {
-      endOrderKey = null;
-    } else {
-      endOrderKey = nextNode.attributes[NoteDocumentConvert.attrBlockOrderKey];
-    }
-    // 有了当前连续区间的所有的null节点和最前排序键和最后排序键
-    _binaryAssignOrderKey(
-      allNulls,
-      0,
-      allNulls.length - 1,
-      startOrderKey,
-      endOrderKey,
-    );
-    //递归的二分分配key
-  }
-
-  void _onInsert(NodeChangeEvent event) {
-    debugPrint('$event');
-    if (event.isSubNode) {
-      return _onUpdateAttr(
-        event.copyWith(
-          changeType: NodeChangeType.updateAttr,
-          node: event.rootNode,
-        ),
-      );
-    }
-
-    // 计算 orderKey
-    String? orderKey;
-    print("插入事件${event.nodeId}");
-    if (_noteId != null && event.chunkOrderKey == null) {
-      // 笔记已存在 → 给当前节点所在的空白区间的所有节点创建orderkey
-      _assignOrderKeyForRange(event);
-    }
-    // 笔记未创建 → orderKey 留空，在 _flushPending 创建笔记后统一分配
-
-    _pending[event.nodeId] = _PendingBlock(
-      nodeId: event.nodeId,
-      chunkId: event.chunkId,
-      type: event.type,
-      deltaJson: _extractDeltaJson(event.node),
-      orderKey: orderKey,
-      changeType: event.chunkId != null
-          ? NodeChangeType.updateAttr
-          : NodeChangeType.insert,
-    );
-    _debounce();
-  }
-
-  void _onDelete(NodeChangeEvent event) {
-    debugPrint('$event');
-    print("删除事件${event.nodeId}");
-    if (event.isSubNode) {
-      return _onUpdateAttr(
-        event.copyWith(
-          changeType: NodeChangeType.updateAttr,
-          node: event.rootNode,
-        ),
-      );
-    }
-    // 标记删除，即使 chunkId 为 null（新建后未保存就删除）也要记录
-    _pending[event.nodeId] = _PendingBlock(
-      nodeId: event.nodeId,
-      chunkId: event.chunkId,
-      changeType: NodeChangeType.delete,
-    );
-    _debounce();
-  }
-
-  void _onUpdateText(NodeChangeEvent event) {
-    debugPrint('$event');
-    // 新块还没 ID → 按 insert 处理
-    if (event.chunkId == null) {
-      _onInsert(event);
-      return;
-    }
-    print("更新事件${event.nodeId}");
-    _pending[event.nodeId] = _PendingBlock(
-      nodeId: event.nodeId,
-      chunkId: event.chunkId,
-      type: event.type,
-      deltaJson: _extractDeltaJson(event.node),
-      orderKey: event.chunkOrderKey,
-      changeType: NodeChangeType.updateText,
-      version: event.chunkVersion,
-    );
-    _debounce();
-  }
-
-  void _onUpdateAttr(NodeChangeEvent event) {
-    debugPrint('$event');
-    if (event.chunkId == null) {
-      _onInsert(event);
-      return;
-    }
-    // 已经有 pending 记录且是 insert → 保持 insert 状态
-    final existing = _pending[event.nodeId];
-    if (existing != null && existing.changeType == NodeChangeType.insert) {
-      return;
-    }
-    _pending[event.nodeId] = _PendingBlock(
-      nodeId: event.nodeId,
-      chunkId: event.chunkId,
-      type: event.type,
-      deltaJson: _extractDeltaJson(event.node),
-      orderKey: event.chunkOrderKey,
-      changeType: NodeChangeType.updateAttr,
-      version: event.chunkVersion,
-    );
-    _debounce();
-  }
-
-  /// 从 Node 提取完整 delta JSON
-  String _extractDeltaJson(Node node) {
-    final delta = node.attributes[blockComponentDelta];
-    return jsonEncode(
-      delta ??
-          [
-            {'insert': '\n'},
-          ],
-    );
-  }
-
-  // ── 防抖 ──
-
-  void _debounce() {
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(_debounceDuration, _flushPending);
-  }
-
-  /// 将累积的待同步变更发送到后端
-  Future<void> _flushPending() async {
-    debugPrint("提交修改");
-    if (_pending.isEmpty || _isFlushing) return;
-    _isFlushing = true;
-
-    // 还没有笔记 ID → 先自动创建笔记，拿到 _noteId
-    if (_noteId == null) {
-      try {
-        final userId = context.read<UserStore>().user?.id;
-        if (userId == null) throw Exception('用户未登录');
-
-        final title = _titleCtrl.text.trim();
-        final response = await HttpClient.instance.post<Map<String, dynamic>>(
-          '/note',
-          data: {
-            'title': title.isNotEmpty ? title : '未命名笔记',
-            'userId': userId,
-            'notebookId': widget.notebookId,
-          },
-        );
-        if (response.code == 200 && response.data != null) {
-          _noteId = response.data!['id'] as int;
-        } else {
-          throw Exception(response.message ?? '创建笔记失败');
-        }
-      } catch (e) {
-        debugPrint('创建笔记失败: $e');
-        _isFlushing = false;
-        return; // 本次不提交块变更，下次防抖重试
-      }
-
-      // 刚创建了笔记 → 给所有待新增的块按文档顺序分配 orderKey
-      int i = 0;
-      for (final node in _editorState.document.root.children) {
-        final pending = _pending[node.id];
-        if (pending != null && pending.orderKey == null) {
-          pending.orderKey = NoteDocumentConvert.orderKeyForIndex(i);
-        }
-        i++;
-      }
-    }
-
-    try {
-      final batch = Map<String, _PendingBlock>.from(_pending);
-      _pending.clear();
-
-      for (final entry in batch.entries) {
-        final block = entry.value;
-        try {
-          switch (block.changeType) {
-            case NodeChangeType.insert:
-              await _createBlock(block);
-            case NodeChangeType.delete:
-              if (block.chunkId != null) {
-                await _deleteBlock(block.chunkId!);
-              }
-            case NodeChangeType.updateText:
-            case NodeChangeType.updateAttr:
-              if (block.chunkId != null) {
-                await _updateBlock(block);
-              }
-          }
-        } catch (e) {
-          debugPrint('同步失败: ${block.nodeId} → $e');
-          _pending[entry.key] = block;
-        }
-      }
-    } finally {
-      _isFlushing = false;
-      if (_pending.isNotEmpty) {
-        _debounce();
-      }
-    }
-  }
-
-  Future<void> _createBlock(_PendingBlock block) async {
-    //首先实现给新创建的块分配orderKey，利用NoteDocumentConvert.enerateOrderKey(preKey,afterKey)
-    debugPrint('创建块: ${block.type}');
-  }
-
-  Future<void> _deleteBlock(int chunkId) async {
-    // TODO: DELETE /blocks/$chunkId
-    debugPrint('删除块: id=$chunkId');
-  }
-
-  Future<void> _updateBlock(_PendingBlock block) async {
-    // TODO: PUT /blocks/${block.chunkId}
-    // data: { type, deltaJson, orderKey, version(乐观锁) }
-    debugPrint('更新块: id=${block.chunkId}');
   }
 
   // ── 保存 ──
@@ -421,11 +69,9 @@ class _NoteEditorState extends State<NoteEditor> {
       return;
     }
 
-    // 先等防抖提交所有待同步变更（如果还没创建笔记，会自动创建）
-    _debounceTimer?.cancel();
-    await _flushPending();
+    await _saveService.flush();
 
-    if (_noteId == null) {
+    if (_saveService.noteId == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('保存失败'), backgroundColor: Colors.red),
@@ -436,9 +82,8 @@ class _NoteEditorState extends State<NoteEditor> {
     setState(() => _isSaving = true);
 
     try {
-      // 更新标题
       final response = await HttpClient.instance.put<Map<String, dynamic>>(
-        '/note/$_noteId',
+        '/note/${_saveService.noteId}',
         data: {'title': title},
       );
       if (response.code == 200 && response.data != null) {
@@ -539,25 +184,4 @@ class _NoteEditorState extends State<NoteEditor> {
       ),
     );
   }
-}
-
-/// 待同步的块变更
-class _PendingBlock {
-  final String nodeId;
-  final int? chunkId;
-  final String? type;
-  final String? deltaJson;
-  String? orderKey;
-  final NodeChangeType changeType;
-  final double version;
-
-  _PendingBlock({
-    required this.nodeId,
-    this.chunkId,
-    this.type,
-    this.deltaJson,
-    this.orderKey,
-    required this.changeType,
-    this.version = 1.0,
-  });
 }
