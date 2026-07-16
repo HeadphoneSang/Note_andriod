@@ -25,6 +25,25 @@ class NodeChangeEvent {
     required this.operation,
   });
 
+  /// 克隆当前对象，可指定修改部分属性
+  NodeChangeEvent copyWith({
+    NodeChangeType? changeType,
+    Node? node,
+    EditorState? editorState,
+    Operation? operation,
+  }) {
+    return NodeChangeEvent(
+      changeType: changeType ?? this.changeType,
+      node: node ?? this.node,
+      editorState: editorState ?? this.editorState,
+      operation: operation ?? this.operation,
+    );
+  }
+
+  Node? get rootNode {
+    return _topLevelNode;
+  }
+
   /// 当前节点是否为嵌套子节点（非顶层块）
   bool get isSubNode {
     final top = _topLevelNode;

@@ -14,7 +14,7 @@ class Note {
   final int? userId;
   final int? notebookId;
   final List<Tag> tags;
-  final double? version;
+  final int? version;
 
   const Note({
     required this.id,
@@ -52,7 +52,7 @@ class Note {
               ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      version: (json['version'] as double?)?.toDouble(),
+      version: (json['version'] as double?)?.toInt(),
     );
   }
 
@@ -88,7 +88,7 @@ class Note {
     int? userId,
     int? notebookId,
     List<Tag>? tags,
-    double? version,
+    int? version,
   }) {
     return Note(
       id: id ?? this.id,

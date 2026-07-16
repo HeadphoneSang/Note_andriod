@@ -179,8 +179,7 @@ class NoteDocumentConvert {
     required DateTime now,
   }) {
     final blockId = node.attributes[attrBlockId] as int?;
-    final version =
-        (node.attributes[attrBlockVersion] as num?)?.toDouble() ?? 1.0;
+    final version = (node.attributes[attrBlockVersion] as num?)?.toInt() ?? 1;
 
     // 保存完整的 Node JSON（含 type / data / children）
     final deltaJson = node.toJson();
@@ -219,6 +218,11 @@ class NoteDocumentConvert {
       default:
         return 'paragraph';
     }
+  }
+
+  /// 根据索引生成简单的 orderKey
+  static String orderKeyForIndex(int index) {
+    return _orderKeyForIndex(index);
   }
 
   /// 根据索引生成简单的 orderKey

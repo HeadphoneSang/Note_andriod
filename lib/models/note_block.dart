@@ -4,7 +4,7 @@ class NoteBlock {
   final String type;
   final String orderKey;
   final dynamic deltaJson;
-  final double version;
+  final int version;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -13,7 +13,7 @@ class NoteBlock {
     required this.type,
     this.orderKey = 'a',
     this.deltaJson,
-    this.version = 1.0,
+    this.version = 1,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -24,7 +24,7 @@ class NoteBlock {
       type: json['type'] as String? ?? '',
       orderKey: json['orderKey'] as String? ?? "a",
       deltaJson: json['deltaJson'],
-      version: (json['version'] as num?)?.toDouble() ?? 1.0,
+      version: (json['version'] as num?)?.toInt() ?? 1,
       createdAt: DateTime.parse(json['createdAt'] as String),
       updatedAt: DateTime.parse(json['updatedAt'] as String),
     );
@@ -47,7 +47,7 @@ class NoteBlock {
     String? type,
     String? orderKey,
     dynamic deltaJson,
-    double? version,
+    int? version,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {

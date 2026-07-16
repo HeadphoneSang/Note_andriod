@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
+import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
 import 'package:note_for_android/models/node_change_event.dart';
 import 'package:note_for_android/screens/note/widgets/table_toolbar_items.dart';
@@ -34,7 +35,7 @@ class _NoteEditorState extends State<NoteEditor> {
   // ── 防抖增量保存 ──
 
   Timer? _debounceTimer;
-  static const _debounceDuration = Duration(milliseconds: 1500);
+  static const _debounceDuration = Duration(milliseconds: 10000);
 
   /// 节点 id(nanoid) → 待同步的块数据
   final Map<String, _PendingBlock> _pending = {};
@@ -116,18 +117,119 @@ class _NoteEditorState extends State<NoteEditor> {
     }
   }
 
+  /// 二分分配OrderKey
+  void _binaryAssignOrderKey(
+    List<Node> rangeNode,
+    int leftIndex,
+    int rightIndex,
+    String? leftOrderKey,
+    String? rightOrderkey,
+  ) {
+    // 边界条件
+    if (leftIndex > rightIndex) return;
+    assert(leftIndex >= 0);
+    assert(rightIndex < rangeNode.length);
+    // 中点分配
+    int mid = (leftIndex + rightIndex) ~/ 2;
+
+    //计算中间的key
+    String orderKey = NoteDocumentConvert.generateOrderKey(
+      leftOrderKey,
+      rightOrderkey,
+    );
+    rangeNode[mid].attributes[NoteDocumentConvert.attrBlockOrderKey] = orderKey;
+    debugPrint("给节点${rangeNode[mid].path}分配的OrderKey${orderKey}");
+
+    // 左边分配
+    _binaryAssignOrderKey(
+      rangeNode,
+      leftIndex,
+      mid - 1,
+      leftOrderKey,
+      orderKey,
+    );
+    // 右边分配
+    _binaryAssignOrderKey(
+      rangeNode,
+      mid + 1,
+      rightIndex,
+      orderKey,
+      rightOrderkey,
+    );
+  }
+
+  void _assignOrderKeyForRange(NodeChangeEvent event) {
+    debugPrint("为节点$event 创建orderkey");
+    late final String? startOrderKey;
+    late final String? endOrderKey;
+    List<Node> preNulls = [];
+    List<Node> allNulls = [];
+    Node? preNode = event.previousNode;
+    Node? nextNode = event.nextNode;
+    // 获得当前节点前面所有没有orderKey的节点
+    while (preNode != null &&
+        preNode.attributes[NoteDocumentConvert.attrBlockOrderKey] == null) {
+      preNulls.add(preNode);
+      preNode = preNode.previous;
+    }
+    if (preNode == null) {
+      //特殊情况处理，最顶层的节点没有orderkey，只有一种可能，就是当前插入的块是插在了文章的开头。
+      startOrderKey = null;
+    } else {
+      startOrderKey = preNode.attributes[NoteDocumentConvert.attrBlockOrderKey];
+    }
+    //倒插进列表
+    allNulls.addAll(preNulls.reversed);
+    //把自己插到中间
+    allNulls.add(event.rootNode!);
+    //找到当前节点后面的null节点
+    while (nextNode != null &&
+        nextNode.attributes[NoteDocumentConvert.attrBlockOrderKey] == null) {
+      allNulls.add(nextNode);
+      nextNode = nextNode.next;
+    }
+    if (nextNode == null) {
+      endOrderKey = null;
+    } else {
+      endOrderKey = nextNode.attributes[NoteDocumentConvert.attrBlockOrderKey];
+    }
+    // 有了当前连续区间的所有的null节点和最前排序键和最后排序键
+    _binaryAssignOrderKey(
+      allNulls,
+      0,
+      allNulls.length - 1,
+      startOrderKey,
+      endOrderKey,
+    );
+    //递归的二分分配key
+  }
+
   void _onInsert(NodeChangeEvent event) {
     debugPrint('$event');
     if (event.isSubNode) {
-      return _onUpdateAttr(event);
+      return _onUpdateAttr(
+        event.copyWith(
+          changeType: NodeChangeType.updateAttr,
+          node: event.rootNode,
+        ),
+      );
     }
-    // 已有 ID 的块（如从其他笔记复制来的）→ PUT 更新，否则标记为新增
+
+    // 计算 orderKey
+    String? orderKey;
+    print("插入事件${event.nodeId}");
+    if (_noteId != null && event.chunkOrderKey == null) {
+      // 笔记已存在 → 给当前节点所在的空白区间的所有节点创建orderkey
+      _assignOrderKeyForRange(event);
+    }
+    // 笔记未创建 → orderKey 留空，在 _flushPending 创建笔记后统一分配
+
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
       chunkId: event.chunkId,
       type: event.type,
       deltaJson: _extractDeltaJson(event.node),
-      orderKey: event.chunkOrderKey,
+      orderKey: orderKey,
       changeType: event.chunkId != null
           ? NodeChangeType.updateAttr
           : NodeChangeType.insert,
@@ -137,8 +239,14 @@ class _NoteEditorState extends State<NoteEditor> {
 
   void _onDelete(NodeChangeEvent event) {
     debugPrint('$event');
+    print("删除事件${event.nodeId}");
     if (event.isSubNode) {
-      return _onUpdateAttr(event);
+      return _onUpdateAttr(
+        event.copyWith(
+          changeType: NodeChangeType.updateAttr,
+          node: event.rootNode,
+        ),
+      );
     }
     // 标记删除，即使 chunkId 为 null（新建后未保存就删除）也要记录
     _pending[event.nodeId] = _PendingBlock(
@@ -156,6 +264,7 @@ class _NoteEditorState extends State<NoteEditor> {
       _onInsert(event);
       return;
     }
+    print("更新事件${event.nodeId}");
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
       chunkId: event.chunkId,
@@ -240,6 +349,16 @@ class _NoteEditorState extends State<NoteEditor> {
         _isFlushing = false;
         return; // 本次不提交块变更，下次防抖重试
       }
+
+      // 刚创建了笔记 → 给所有待新增的块按文档顺序分配 orderKey
+      int i = 0;
+      for (final node in _editorState.document.root.children) {
+        final pending = _pending[node.id];
+        if (pending != null && pending.orderKey == null) {
+          pending.orderKey = NoteDocumentConvert.orderKeyForIndex(i);
+        }
+        i++;
+      }
     }
 
     try {
@@ -276,22 +395,7 @@ class _NoteEditorState extends State<NoteEditor> {
   }
 
   Future<void> _createBlock(_PendingBlock block) async {
-    // TODO: 替换为实际 API
-    // final resp = await HttpClient.instance.post<Map<String, dynamic>>(
-    //   '/blocks',
-    //   data: {
-    //     'noteId': _noteId,
-    //     'type': block.type,
-    //     'deltaJson': block.deltaJson,
-    //     'orderKey': block.orderKey,
-    //   },
-    // );
-    // if (resp.code == 200 && resp.data != null) {
-    //   // 把后端返回的 ID 写回 Node 的 attributes，下次修改就知道是已有块了
-    //   final node = _editorState.document.nodeAtPath([...]);
-    //   node?.attributes[NoteDocumentConvert.attrBlockId] = resp.data!['id'];
-    //   node?.attributes[NoteDocumentConvert.attrBlockVersion] = resp.data!['version'];
-    // }
+    //首先实现给新创建的块分配orderKey，利用NoteDocumentConvert.enerateOrderKey(preKey,afterKey)
     debugPrint('创建块: ${block.type}');
   }
 
@@ -443,11 +547,11 @@ class _PendingBlock {
   final int? chunkId;
   final String? type;
   final String? deltaJson;
-  final String? orderKey;
+  String? orderKey;
   final NodeChangeType changeType;
   final double version;
 
-  const _PendingBlock({
+  _PendingBlock({
     required this.nodeId,
     this.chunkId,
     this.type,
