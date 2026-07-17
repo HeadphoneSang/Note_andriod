@@ -16,13 +16,13 @@ class NoteBlock {
     this.deltaJson,
     this.version = 1,
     this.noteId,
-    required this.createdAt,
-    required this.updatedAt,
+    this.createdAt,
+    this.updatedAt,
   });
 
   factory NoteBlock.fromJson(Map<String, dynamic> json) {
     return NoteBlock(
-      id: json['id'] as int,
+      id: json['id'] as int?,
       noteId: json['noteId'] as int?,
       type: json['type'] as String? ?? '',
       orderKey: json['orderKey'] as String? ?? "a",

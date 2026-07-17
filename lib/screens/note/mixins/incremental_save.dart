@@ -308,14 +308,9 @@ class IncrementalSaveService {
     _debounce();
   }
 
+  /// 将编辑器节点（含子节点）序列化为 JSON 字符串
   String _extractDeltaJson(Node node) {
-    final delta = node.attributes[blockComponentDelta];
-    return jsonEncode(
-      delta ??
-          [
-            {'insert': '\n'},
-          ],
-    );
+    return jsonEncode(node.toJson());
   }
 
   // ── 防抖提交 ──
@@ -451,6 +446,7 @@ class IncrementalSaveService {
             case NodeChangeType.updateAttr:
               diff.addUpdateBlock(block.toNoteBlock(_noteId!));
           }
+          throw Exception();
         } catch (e) {
           debugPrint('同步预处理阶段失败: ${block.nodeId} → $e');
           _pending[entry.key] = block;
