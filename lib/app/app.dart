@@ -2,6 +2,7 @@ import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
+import 'package:toastification/toastification.dart';
 import '../core/store/user_store.dart';
 import '../screens/auth/auth_screen.dart';
 import '../screens/home/home_screen.dart';
@@ -14,22 +15,24 @@ class App extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => UserStore(),
-      child: MaterialApp(
-        locale: const Locale('zh', 'CN'),
-        localizationsDelegates: const [
-          AppFlowyEditorLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color.fromARGB(255, 230, 220, 199),
+      child: ToastificationWrapper(
+        child: MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: const [
+            AppFlowyEditorLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color.fromARGB(255, 230, 220, 199),
+            ),
           ),
+          home: SafeArea(child: const _AppEntry()),
+          onGenerateRoute: AppRouter.onGenerateRoute,
         ),
-        home: SafeArea(child: const _AppEntry()),
-        onGenerateRoute: AppRouter.onGenerateRoute,
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:note_for_android/core/network/http_client.dart';
 import 'package:note_for_android/screens/note/mixins/incremental_save.dart';
 import 'package:note_for_android/screens/note/widgets/table_toolbar_items.dart';
+import 'package:note_for_android/utils/toast_util.dart';
 import '../../models/note.dart';
 
 /// 新建笔记页面 — 从底部弹出
@@ -23,7 +24,6 @@ class _NoteEditorState extends State<NoteEditor> {
   late final _tableActionItem = createTableActionToolbarItem();
   late final IncrementalSaveService _saveService;
   bool _isSaving = false;
-  bool _isDirty = false;
   StreamSubscription? _txSub;
 
   @override
@@ -36,13 +36,12 @@ class _NoteEditorState extends State<NoteEditor> {
       titleCtrl: _titleCtrl,
       provideNotebookId: () => widget.notebookId,
       provideContext: () => context,
-      onDirty: () => _isDirty = true,
+      notebookId: widget.notebookId,
     );
 
     _txSub = _editorState.transactionStream.listen((event) {
       final (time, transaction, _) = event;
       if (time != TransactionTime.after) return;
-      _isDirty = true;
       for (final op in transaction.operations) {
         _saveService.dispatch(op);
       }
@@ -63,46 +62,19 @@ class _NoteEditorState extends State<NoteEditor> {
   Future<void> _saveNote() async {
     final title = _titleCtrl.text.trim();
     if (title.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入标题'), backgroundColor: Colors.orange),
-      );
+      ToastUtil.warning(context, title: '请输入标题');
       return;
     }
-
+    if (!_saveService.haveTotalChange) {
+      ToastUtil.warning(context, title: '没有任何修改');
+      return;
+    }
     await _saveService.flush();
 
     if (_saveService.noteId == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('保存失败'), backgroundColor: Colors.red),
-      );
+      ToastUtil.error(context, title: '保存失败');
       return;
-    }
-
-    setState(() => _isSaving = true);
-
-    try {
-      final response = await HttpClient.instance.put<Map<String, dynamic>>(
-        '/note/${_saveService.noteId}',
-        data: {'title': title},
-      );
-      if (response.code == 200 && response.data != null) {
-        final note = Note.fromJson(response.data!);
-        if (!mounted) return;
-        Navigator.pop(context, note);
-      } else {
-        throw Exception(response.message ?? '保存失败');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -126,7 +98,9 @@ class _NoteEditorState extends State<NoteEditor> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
+        children: [
+          Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -179,6 +153,43 @@ class _NoteEditorState extends State<NoteEditor> {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+      // ── 右下角上传动画 ──
+          ValueListenableBuilder<bool>(
+            valueListenable: _saveService.isFlushingNotifier,
+            builder: (context, isFlushing, _) {
+              return AnimatedOpacity(
+                opacity: isFlushing ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16, bottom: 16),
+                  child: Align(
+                    alignment: Alignment.bottomRight,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black26,
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),

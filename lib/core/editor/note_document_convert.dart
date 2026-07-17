@@ -49,9 +49,11 @@ class NoteDocumentConvert {
     if (block.deltaJson is Map<String, Object>) {
       final node = Node.fromJson(block.deltaJson as Map<String, Object>);
       // 注入数据库 id / version / orderKey
-      node.attributes[attrBlockId] = block.id;
-      node.attributes[attrBlockVersion] = block.version;
-      node.attributes[attrBlockOrderKey] = block.orderKey;
+      node.updateAttributes({
+        attrBlockId: block.id,
+        attrBlockVersion: block.version,
+        attrBlockOrderKey: block.orderKey,
+      });
       return node;
     }
 
@@ -72,7 +74,7 @@ class NoteDocumentConvert {
     }
 
     // 根据块类型补充额外属性
-    final type = _mapType(block.type);
+    final type = _mapType(block.type!);
     if (type == HeadingBlockKeys.type) {
       final level = _parseHeadingLevel(block.deltaJson);
       if (level != null) {

@@ -294,7 +294,8 @@ class _NoteListState extends State<NoteList> {
   }
 
   /// 格式化时间为友好显示
-  String _formatTime(DateTime dt) {
+  String _formatTime(DateTime? dt) {
+    if (dt == null) return "无法获取时间";
     final now = DateTime.now();
     final diff = now.difference(dt);
 

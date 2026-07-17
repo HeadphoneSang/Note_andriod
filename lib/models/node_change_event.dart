@@ -61,15 +61,14 @@ class NodeChangeEvent {
   int? get chunkId => node.attributes[NoteDocumentConvert.attrBlockId] as int?;
 
   /// 数据库块版本号
-  double get chunkVersion =>
-      (_topLevelNode?.attributes[NoteDocumentConvert.attrBlockVersion] as num?)
-          ?.toDouble() ??
-      1.0;
+  int get chunkVersion =>
+      (_topLevelNode?.attributes[NoteDocumentConvert.attrBlockVersion] as int?)
+          ?.toInt() ??
+      1;
 
   /// 排序键
   String? get chunkOrderKey =>
-      _topLevelNode?.attributes[NoteDocumentConvert.attrBlockOrderKey]
-          as String?;
+      node.attributes[NoteDocumentConvert.attrBlockOrderKey] as String?;
 
   /// 前一个顶层块
   Node? get previousNode {

@@ -2,14 +2,14 @@ import 'tag.dart';
 
 /// 笔记模型 — 与服务端 Note.java 对齐
 class Note {
-  final int id;
+  final int? id;
   final String title;
   final String? summary;
   final bool isMarked;
   final bool isDelete;
   final int sortOrder;
-  final DateTime createdAt;
-  final DateTime updatedAt;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
   final DateTime? deletedAt;
   final int? userId;
   final int? notebookId;
@@ -34,14 +34,18 @@ class Note {
 
   factory Note.fromJson(Map<String, dynamic> json) {
     return Note(
-      id: json['id'] as int,
+      id: json['id'] as int?,
       title: json['title'] as String? ?? '',
       summary: json['summary'] as String?,
       isMarked: json['isMarked'] as bool? ?? false,
       isDelete: json['isDelete'] as bool? ?? false,
       sortOrder: json['sortOrder'] as int? ?? 0,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : null,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
+          : null,
       deletedAt: json['deletedAt'] != null
           ? DateTime.parse(json['deletedAt'] as String)
           : null,
@@ -64,8 +68,8 @@ class Note {
       'isMarked': isMarked,
       'isDelete': isDelete,
       'sortOrder': sortOrder,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt.toIso8601String(),
+      'createdAt': createdAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
       'deletedAt': deletedAt?.toIso8601String(),
       'userId': userId,
       'notebookId': notebookId,
@@ -108,5 +112,6 @@ class Note {
   }
 
   @override
-  String toString() => 'Note(id: $id, title: $title, userId: $userId)';
+  String toString() =>
+      'Note(id: $id, title: $title, summary: $summary, isMarked: $isMarked, isDelete: $isDelete, sortOrder: $sortOrder, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, userId: $userId, notebookId: $notebookId, tags: $tags, version: $version)';
 }
