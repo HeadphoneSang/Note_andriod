@@ -259,6 +259,12 @@ class IncrementalSaveService {
         ),
       );
     }
+    // 节点从未上传过（chunkId == null），服务端无此节点，无需删除
+    if (event.chunkId == null) {
+      _pending.remove(event.nodeId);
+      debugPrint('删除未上传节点: ${event.nodeId}，已忽略');
+      return;
+    }
     debugPrint('$event');
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
