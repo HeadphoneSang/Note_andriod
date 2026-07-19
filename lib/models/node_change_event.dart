@@ -46,6 +46,14 @@ class NodeChangeEvent {
 
   /// 当前节点是否为嵌套子节点（非顶层块）
   bool get isSubNode {
+    // 删除操作时，节点已从树中移除，nodeAtPath 会因索引错位而返回错误结果。
+    // 注意：只对 changeType == delete 生效，事件转发后 changeType 已变，
+    // 会走回原 _topLevelNode 逻辑，避免循环。
+    if (changeType == NodeChangeType.delete && operation is DeleteOperation) {
+      // operation.path 是删除发生的位置，不受节点移除影响
+      // 顶层: [1] → length=1, 子节点: [2,0] → length=2
+      return operation.path.length > 1;
+    }
     final top = _topLevelNode;
     return top != null && node != top;
   }

@@ -42,4 +42,27 @@ class NoteBlockDiff {
       'deletedBlocks': deleteBlocks.map((b) => b.toJson()).toList(),
     };
   }
+
+  int get opertionsCnt {
+    return updateBlocks.length + deleteBlocks.length + insertBlocks.length;
+  }
+
+  @override
+  String toString() {
+    final buf = StringBuffer('NoteBlockDiff(\n');
+    buf.writeln('  insertedBlocks (${insertBlocks.length}):');
+    for (final b in insertBlocks) {
+      buf.writeln('    - $b');
+    }
+    buf.writeln('  updatedBlocks (${updateBlocks.length}):');
+    for (final b in updateBlocks) {
+      buf.writeln('    - $b');
+    }
+    buf.writeln('  deletedBlocks (${deleteBlocks.length}):');
+    for (final b in deleteBlocks) {
+      buf.writeln('    - $b');
+    }
+    buf.write(')');
+    return buf.toString();
+  }
 }

@@ -251,11 +251,14 @@ class IncrementalSaveService {
   }
 
   void _onDelete(NodeChangeEvent event) {
+    event.node.updateAttributes({NoteDocumentConvert.attrBlockOrderKey: null});
     if (event.isSubNode) {
       return _onUpdateAttr(
         event.copyWith(
           changeType: NodeChangeType.updateAttr,
-          node: event.rootNode,
+          node: event.editorState.document.nodeAtPath([
+            event.operation.path.first,
+          ]),
         ),
       );
     }
@@ -452,7 +455,7 @@ class IncrementalSaveService {
             case NodeChangeType.updateAttr:
               diff.addUpdateBlock(block.toNoteBlock(_noteId!));
           }
-          throw Exception();
+          throw Exception(); //记得删除
         } catch (e) {
           debugPrint('同步预处理阶段失败: ${block.nodeId} → $e');
           _pending[entry.key] = block;
@@ -460,6 +463,7 @@ class IncrementalSaveService {
       }
       // 将增量更新提交到后端服务
       debugPrint('${diff.toJson()}');
+      debugPrint("$diff");
     } finally {
       // 保证动画至少显示 600ms，让用户能感知到
       final elapsed = flushStopwatch.elapsedMilliseconds;
