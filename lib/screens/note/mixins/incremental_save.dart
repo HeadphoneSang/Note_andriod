@@ -72,7 +72,7 @@ class IncrementalSaveService {
   bool _isFlushing = false; // 文本块防抖缓冲池锁
   bool _isUpdateTitle = false;
   Timer? _debounceTimer; // 防抖延迟网络请求计时器
-  static const _debounceDuration = Duration(milliseconds: 5000); // 防抖的时间，单位是毫秒
+  static const _debounceDuration = Duration(milliseconds: 2000); // 防抖的时间，单位是毫秒
   final Map<String, _PendingBlock> _pending = {}; //  防抖缓存
 
   /// 上传状态通知器 — UI 监听此对象来显示/隐藏上传动画
@@ -278,6 +278,10 @@ class IncrementalSaveService {
   }
 
   void _onUpdateText(NodeChangeEvent event) {
+    if (event.isSubNode) {
+      _onUpdateText(event.copyWith(node: event.rootNode));
+      return;
+    }
     if (event.chunkId == null) {
       _onInsert(event.copyWith(changeType: NodeChangeType.insert));
       return;
@@ -297,6 +301,10 @@ class IncrementalSaveService {
   }
 
   void _onUpdateAttr(NodeChangeEvent event) {
+    if (event.isSubNode) {
+      _onUpdateAttr(event.copyWith(node: event.rootNode));
+      return;
+    }
     if (event.chunkId == null) {
       _onInsert(event.copyWith(changeType: NodeChangeType.insert));
       return;
