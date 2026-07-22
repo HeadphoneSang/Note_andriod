@@ -180,7 +180,7 @@ class NoteDocumentConvert {
     required String orderKey,
     required DateTime now,
   }) {
-    final blockId = node.attributes[attrBlockId] as int?;
+    final blockId = node.attributes[attrBlockId] as String?;
     final version = (node.attributes[attrBlockVersion] as num?)?.toInt() ?? 1;
 
     // 保存完整的 Node JSON（含 type / data / children）
@@ -190,7 +190,7 @@ class NoteDocumentConvert {
     final type = _reverseMapType(node.type);
 
     return NoteBlock(
-      id: blockId ?? 0,
+      id: blockId,
       type: type,
       orderKey: orderKey,
       deltaJson: deltaJson,

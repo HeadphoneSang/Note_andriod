@@ -1,6 +1,6 @@
 /// 笔记块模型 — 与服务端 NoteBlock.java 对齐
 class NoteBlock {
-  final int? id;
+  final String? id;
   final int? noteId;
   final String? type;
   final String? orderKey;
@@ -22,7 +22,7 @@ class NoteBlock {
 
   factory NoteBlock.fromJson(Map<String, dynamic> json) {
     return NoteBlock(
-      id: json['id'] as int?,
+      id: json['id'] as String?,
       noteId: json['noteId'] as int?,
       type: json['type'] as String? ?? '',
       orderKey: json['orderKey'] as String? ?? "a",
@@ -51,7 +51,7 @@ class NoteBlock {
   }
 
   NoteBlock copyWith({
-    int? id,
+    String? id,
     int? noteId,
     String? type,
     String? orderKey,

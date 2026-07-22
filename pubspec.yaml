@@ -44,6 +44,7 @@ dependencies:
   flutter_svg: ^2.3.0
   appflowy_editor: 6.2.0
   toastification: ^3.2.0
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:

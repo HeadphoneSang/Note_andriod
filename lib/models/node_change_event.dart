@@ -72,7 +72,7 @@ class NodeChangeEvent {
   }
 
   /// 数据库块 ID
-  int? get chunkId => node.attributes[NoteDocumentConvert.attrBlockId] as int?;
+  String? get chunkId => node.attributes[NoteDocumentConvert.attrBlockId] as String?;
 
   /// 数据库块版本号
   int get chunkVersion =>

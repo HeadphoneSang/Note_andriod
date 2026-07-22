@@ -9,11 +9,12 @@ import 'package:note_for_android/models/note.dart';
 import 'package:note_for_android/models/note_block.dart';
 import 'package:note_for_android/models/note_diff.dart';
 import 'package:note_for_android/utils/toast_util.dart';
+import 'package:uuid/uuid.dart';
 
 /// 待同步的块变更
 class _PendingBlock {
   final String nodeId;
-  final int? chunkId;
+  final String? chunkId;
   final String? type;
   final String? deltaJson;
   String? orderKey;
@@ -230,12 +231,19 @@ class IncrementalSaveService {
       );
     }
     debugPrint('${event.rootNode}');
-    if (_noteId != null && event.chunkOrderKey == null) {
+    if (event.chunkOrderKey == null) {
       _assignOrderKeyForRange(event);
+    }
+    // 为新节点生成 UUID 并持久化到 attributes，后续操作可引用
+    final newChunkId = event.chunkId ?? const Uuid().v4();
+    if (event.chunkId == null) {
+      event.node.updateAttributes({
+        NoteDocumentConvert.attrBlockId: newChunkId,
+      });
     }
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
-      chunkId: event.chunkId,
+      chunkId: newChunkId,
       type: event.type,
       deltaJson: _extractDeltaJson(event.node),
       orderKey: event.chunkOrderKey,
@@ -496,30 +504,52 @@ class IncrementalSaveService {
       try {
         switch (block.changeType) {
           case NodeChangeType.insert:
-            diff.addInsertBlocks(block.toNoteBlock(_noteId!));
+            diff.addInsertBlocks(block.toNoteBlock(_noteId!),block.nodeId);
           case NodeChangeType.delete:
-            diff.addDeleteBlocks(block.toNoteBlock(_noteId!));
+            diff.addDeleteBlocks(block.toNoteBlock(_noteId!),block.nodeId);
           case NodeChangeType.updateText:
           case NodeChangeType.updateAttr:
-            diff.addUpdateBlock(block.toNoteBlock(_noteId!));
+            diff.addUpdateBlock(block.toNoteBlock(_noteId!),block.nodeId);
         }
+        throw Exception();
       } catch (e) {
         debugPrint('同步预处理阶段失败: ${block.nodeId} → $e');
-        _pending[entry.key] = block;
+        _pending.putIfAbsent(entry.key, () => block);
       }
     }
     return diff;
   }
 
-  Future<void> _createBlock(_PendingBlock block) async {
-    debugPrint('创建块: ${block.type}');
-  }
-
-  Future<void> _deleteBlock(int chunkId) async {
-    debugPrint('删除块: id=$chunkId');
-  }
-
-  Future<void> _updateBlock(_PendingBlock block) async {
-    debugPrint('更新块: id=${block.chunkId}');
-  }
+  Future<bool> _tryUpdateNoteDiff(NoteBlockDiff diffBlock,Map<String, _PendingBlock> batch) async {
+    //请求地址是POST /noteBlock/batchUpdate，参数是diffBlock
+    // 返回结果如果是
+    try{
+      final response = await HttpClient.instance.post<Map<String, dynamic>>(
+        '/note/title',
+        data: diffBlock.toJson()
+      );
+      // 更新更新成功的块的version
+      if (response.code == 200 && response.data != null) {
+        ToastUtil.success(
+          provideContext(),
+          title: "保存成功",
+          description: "内容已保存",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        //给所有的更新块更新版本号=+1
+      }else{
+        //从响应中拿到失败的块，打印通知，同时将更新失败的块用红色的透明背景标亮
+        //并且将所有更新失败或者删除插入失败的node对应的版本号不变，其他的+1.
+        //并且将更新失败或者删除插入失败的块重新加入到pending缓存中，即使有新的也覆盖。
+        //最后提示用户刷新页面
+      }
+    }catch (e){
+      ToastUtil.error(
+        provideContext(),
+        title: "网络请求错误",
+        description: "保存失败",
+        alignment: AlignmentGeometry.bottomRight,
+      );
+      return false;
+    }
 }

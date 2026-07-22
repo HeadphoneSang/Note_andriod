@@ -4,6 +4,7 @@ class NoteBlockDiff {
   final List<NoteBlock> updateBlocks;
   final List<NoteBlock> deleteBlocks;
   final List<NoteBlock> insertBlocks;
+  final Map<String, String> _chunkIdToNodeId = {};
 
   NoteBlockDiff({
     List<NoteBlock>? updateBlocks,
@@ -13,16 +14,23 @@ class NoteBlockDiff {
        deleteBlocks = deleteBlocks ?? [],
        insertBlocks = insertBlocks ?? [];
 
-  void addUpdateBlock(NoteBlock block) {
+  String? getNodeId(String chunkId) {
+    return _chunkIdToNodeId[chunkId];
+  }
+
+  void addUpdateBlock(NoteBlock block, String nodeId) {
     updateBlocks.add(block);
+    _chunkIdToNodeId[block.id!] = nodeId;
   }
 
-  void addDeleteBlocks(NoteBlock block) {
+  void addDeleteBlocks(NoteBlock block, String nodeId) {
     deleteBlocks.add(block);
+    _chunkIdToNodeId[block.id!] = nodeId;
   }
 
-  void addInsertBlocks(NoteBlock block) {
+  void addInsertBlocks(NoteBlock block, String nodeId) {
     insertBlocks.add(block);
+    _chunkIdToNodeId[block.id!] = nodeId;
   }
 
   /// 转为 JSON，供 POST 提交时使用
