@@ -8,18 +8,19 @@ import 'package:note_for_android/models/node_change_event.dart';
 import 'package:note_for_android/models/note.dart';
 import 'package:note_for_android/models/note_block.dart';
 import 'package:note_for_android/models/note_diff.dart';
+import 'package:note_for_android/models/note_diff_result.dart';
 import 'package:note_for_android/utils/toast_util.dart';
 import 'package:uuid/uuid.dart';
 
 /// 待同步的块变更
 class _PendingBlock {
   final String nodeId;
-  final String? chunkId;
+  String? chunkId;
   final String? type;
   final String? deltaJson;
   String? orderKey;
   final NodeChangeType changeType;
-  final int version;
+  int version;
 
   _PendingBlock({
     required this.nodeId,
@@ -234,16 +235,10 @@ class IncrementalSaveService {
     if (event.chunkOrderKey == null) {
       _assignOrderKeyForRange(event);
     }
-    // 为新节点生成 UUID 并持久化到 attributes，后续操作可引用
-    final newChunkId = event.chunkId ?? const Uuid().v4();
-    if (event.chunkId == null) {
-      event.node.updateAttributes({
-        NoteDocumentConvert.attrBlockId: newChunkId,
-      });
-    }
+    // 不在这里生成 UUID，延迟到 _buildDiff 发送请求时再生成
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
-      chunkId: newChunkId,
+      chunkId: event.chunkId,
       type: event.type,
       deltaJson: _extractDeltaJson(event.node),
       orderKey: event.chunkOrderKey,
@@ -378,7 +373,7 @@ class IncrementalSaveService {
       // 将增量更新提交到后端服务
       debugPrint('${diff.toJson()}');
       debugPrint("$diff");
-      flushSucceeded = true;
+      flushSucceeded = await _tryUpdateNoteDiff(diff, batch);
     } finally {
       if (!flushSucceeded) {
         // 保存失败，恢复缓存区，等下次 debounce 重试
@@ -497,21 +492,25 @@ class IncrementalSaveService {
   }
 
   /// 从 batch 构建 NoteBlockDiff
+  /// 新块（chunkId == null）在此时生成 UUID。
   NoteBlockDiff _buildDiff(Map<String, _PendingBlock> batch) {
     final diff = NoteBlockDiff();
     for (final entry in batch.entries) {
       final block = entry.value;
       try {
+        // 新块在发送请求时才生成 UUID，避免提前占位影响事件转发
+        if (block.chunkId == null) {
+          block.chunkId = const Uuid().v4();
+        }
         switch (block.changeType) {
           case NodeChangeType.insert:
-            diff.addInsertBlocks(block.toNoteBlock(_noteId!),block.nodeId);
+            diff.addInsertBlocks(block.toNoteBlock(_noteId!), block.nodeId);
           case NodeChangeType.delete:
-            diff.addDeleteBlocks(block.toNoteBlock(_noteId!),block.nodeId);
+            diff.addDeleteBlocks(block.toNoteBlock(_noteId!), block.nodeId);
           case NodeChangeType.updateText:
           case NodeChangeType.updateAttr:
-            diff.addUpdateBlock(block.toNoteBlock(_noteId!),block.nodeId);
+            diff.addUpdateBlock(block.toNoteBlock(_noteId!), block.nodeId);
         }
-        throw Exception();
       } catch (e) {
         debugPrint('同步预处理阶段失败: ${block.nodeId} → $e');
         _pending.putIfAbsent(entry.key, () => block);
@@ -520,30 +519,89 @@ class IncrementalSaveService {
     return diff;
   }
 
-  Future<bool> _tryUpdateNoteDiff(NoteBlockDiff diffBlock,Map<String, _PendingBlock> batch) async {
-    //请求地址是POST /noteBlock/batchUpdate，参数是diffBlock
-    // 返回结果如果是
-    try{
+  Future<bool> _tryUpdateNoteDiff(
+    NoteBlockDiff diffBlock,
+    Map<String, _PendingBlock> batch,
+  ) async {
+    // 构建 chunkId → nodeId / _PendingBlock 的映射，用于处理失败的块
+    final failedChunkIds = <String>{};
+    try {
       final response = await HttpClient.instance.post<Map<String, dynamic>>(
-        '/note/title',
-        data: diffBlock.toJson()
+        '/noteBlock/batchUpdate',
+        data: diffBlock.toJson(),
       );
-      // 更新更新成功的块的version
       if (response.code == 200 && response.data != null) {
-        ToastUtil.success(
+        final result = NoteDiffResult.fromJson(response.data!);
+        if (result.hasConflict) {
+          // 有部分块保存失败
+          failedChunkIds.addAll(result.failUpdateBlocks);
+          failedChunkIds.addAll(result.failDeletedBlocks);
+          failedChunkIds.addAll(result.failCreatedBlocks);
+
+          // 将失败的块重新加入 pending 缓存，覆盖已有的
+          for (final entry in batch.entries) {
+            final block = entry.value;
+            if (block.chunkId != null &&
+                failedChunkIds.contains(block.chunkId)) {
+              // 新块上传失败 → 清除 chunkId，下次重试时重新生成 UUID
+              if (block.changeType == NodeChangeType.insert) {
+                block.chunkId = null;
+              }
+              _pending[entry.key] = block;
+              // 在编辑器中标记为红色高亮
+              _markNodeError(entry.key, true);
+            } else {
+              // 成功块：更新/删除的版本号 +1，新插入的保持 1
+              if (block.changeType != NodeChangeType.insert) {
+                _updateBlockVersion(entry.key, block);
+              }
+              _persistChunkId(entry.key, block);
+            }
+          }
+          // 提示用户刷新
+          ToastUtil.warning(
+            provideContext(),
+            title: "部分保存失败",
+            description: "有 ${failedChunkIds.length} 个块冲突，请刷新页面",
+            alignment: AlignmentGeometry.bottomRight,
+          );
+        } else {
+          // 全部成功 → 更新/删除的版本号 +1，新插入的保持 1，并持久化 UUID
+          for (final entry in batch.entries) {
+            if (entry.value.changeType != NodeChangeType.insert) {
+              _updateBlockVersion(entry.key, entry.value);
+            }
+            _persistChunkId(entry.key, entry.value);
+          }
+          ToastUtil.success(
+            provideContext(),
+            title: "保存成功",
+            description: "内容已保存",
+            alignment: AlignmentGeometry.bottomRight,
+          );
+        }
+        return !result.hasConflict;
+      } else if (response.code == 409) {
+        // 版本冲突，全部失败
+        for (final entry in batch.entries) {
+          final block = entry.value;
+          // 新块上传失败 → 清除 chunkId
+          if (block.changeType == NodeChangeType.insert) {
+            block.chunkId = null;
+          }
+          _pending[entry.key] = block;
+        }
+        ToastUtil.warning(
           provideContext(),
-          title: "保存成功",
-          description: "内容已保存",
+          title: "保存失败",
+          description: "版本冲突，请刷新页面",
           alignment: AlignmentGeometry.bottomRight,
         );
-        //给所有的更新块更新版本号=+1
-      }else{
-        //从响应中拿到失败的块，打印通知，同时将更新失败的块用红色的透明背景标亮
-        //并且将所有更新失败或者删除插入失败的node对应的版本号不变，其他的+1.
-        //并且将更新失败或者删除插入失败的块重新加入到pending缓存中，即使有新的也覆盖。
-        //最后提示用户刷新页面
+        return false;
+      } else {
+        throw Exception(response.message ?? '保存失败');
       }
-    }catch (e){
+    } catch (e) {
       ToastUtil.error(
         provideContext(),
         title: "网络请求错误",
@@ -552,4 +610,36 @@ class IncrementalSaveService {
       );
       return false;
     }
+  }
+
+  /// 将成功块的版本号 +1，并更新编辑器节点属性
+  void _updateBlockVersion(String nodeId, _PendingBlock block) {
+    block.version++;
+    _updateNodeAttribute(nodeId, {
+      NoteDocumentConvert.attrBlockVersion: block.version,
+    });
+  }
+
+  /// 将新块生成的 UUID 持久化到编辑器节点属性，后续事件可引用
+  void _persistChunkId(String nodeId, _PendingBlock block) {
+    if (block.chunkId == null) return;
+    _updateNodeAttribute(nodeId, {
+      NoteDocumentConvert.attrBlockId: block.chunkId,
+    });
+  }
+
+  /// 标记/清除编辑器节点的错误状态
+  void _markNodeError(String nodeId, bool hasError) {
+    _updateNodeAttribute(nodeId, {'chunkError': hasError});
+  }
+
+  /// 按 nodeId 查找编辑器节点并更新属性
+  void _updateNodeAttribute(String nodeId, Map<String, dynamic> attrs) {
+    final idx = editorState.document.root.children.indexWhere(
+      (n) => n.id == nodeId,
+    );
+    if (idx < 0) return;
+    final node = editorState.document.nodeAtPath([idx]);
+    node?.updateAttributes(attrs);
+  }
 }

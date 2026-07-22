@@ -77,7 +77,9 @@ class NodeChangeEvent {
   /// 数据库块版本号
   int get chunkVersion =>
       (_topLevelNode?.attributes[NoteDocumentConvert.attrBlockVersion] as int?)
-          ?.toInt() ??
+              ?.toInt() ??
+          (node.attributes[NoteDocumentConvert.attrBlockVersion] as int?)
+              ?.toInt() ??
       1;
 
   /// 排序键
