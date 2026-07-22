@@ -4,13 +4,11 @@ import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
-import 'package:note_for_android/core/store/user_store.dart';
 import 'package:note_for_android/models/node_change_event.dart';
 import 'package:note_for_android/models/note.dart';
 import 'package:note_for_android/models/note_block.dart';
 import 'package:note_for_android/models/note_diff.dart';
 import 'package:note_for_android/utils/toast_util.dart';
-import 'package:provider/provider.dart';
 
 /// 待同步的块变更
 class _PendingBlock {
@@ -253,13 +251,10 @@ class IncrementalSaveService {
   void _onDelete(NodeChangeEvent event) {
     event.node.updateAttributes({NoteDocumentConvert.attrBlockOrderKey: null});
     if (event.isSubNode) {
+      final rootNode = event.rootNode;
+      if (rootNode == null) return;
       return _onUpdateAttr(
-        event.copyWith(
-          changeType: NodeChangeType.updateAttr,
-          node: event.editorState.document.nodeAtPath([
-            event.operation.path.first,
-          ]),
-        ),
+        event.copyWith(changeType: NodeChangeType.updateAttr, node: rootNode),
       );
     }
     // 节点从未上传过（chunkId == null），服务端无此节点，无需删除
@@ -281,7 +276,7 @@ class IncrementalSaveService {
 
   void _onUpdateText(NodeChangeEvent event) {
     if (event.chunkId == null) {
-      _onInsert(event);
+      _onInsert(event.copyWith(changeType: NodeChangeType.insert));
       return;
     }
     debugPrint('$event');
@@ -300,7 +295,7 @@ class IncrementalSaveService {
 
   void _onUpdateAttr(NodeChangeEvent event) {
     if (event.chunkId == null) {
-      _onInsert(event);
+      _onInsert(event.copyWith(changeType: NodeChangeType.insert));
       return;
     }
     debugPrint('$event');
@@ -337,134 +332,53 @@ class IncrementalSaveService {
     isFlushingNotifier.value = true;
     final flushStopwatch = Stopwatch()..start();
     // 记录当前需要保存的所有信息的快照
-    final batch = _pending.isNotEmpty
+    final Map<String, _PendingBlock> batch = _pending.isNotEmpty
         ? Map<String, _PendingBlock>.from(_pending)
         : {};
     _pending.clear();
     final snapTitle = titleCtrl.text.trim();
     bool needUpdateTitle = _isUpdateTitle;
     _isUpdateTitle = false;
+    bool flushSucceeded = false;
     try {
+      // ── ① 创建笔记（首次保存时） ──
       if (_noteId == null) {
-        try {
-          final Note note = Note.fromJson({
-            "title": snapTitle,
-            "id": null,
-            "notebookId": notebookId,
-          });
-          final response = await HttpClient.instance.post<Map<String, dynamic>>(
-            '/note/create',
-            data: note.toJson(),
+        if (snapTitle.isEmpty) {
+          ToastUtil.warning(
+            provideContext(),
+            title: "自动保存",
+            description: "请输入有效的标题",
           );
-          if (response.code == 200 && response.data != null) {
-            Note responseNote = Note.fromJson(response.data!);
-            _noteId = responseNote.id;
-            _currentNoteInfo = responseNote;
-            print(_currentNoteInfo);
-            ToastUtil.success(
-              provideContext(),
-              title: "创建成功",
-              description: "笔记: $snapTitle",
-            );
-            needUpdateTitle = false;
-          } else {
-            throw Exception(response.message ?? '创建笔记失败');
-          }
-        } catch (e) {
-          debugPrint('创建笔记失败: $e');
-          _isUpdateTitle = true;
           return;
         }
-        // 因为是刚创建的笔记，所以直接给所有的块分配orderKey就行
+        if (!await _tryCreateNote(snapTitle)) return;
+        needUpdateTitle = false;
+        // 刚创建的笔记，直接给所有块分配 orderKey
         if (batch.isEmpty) return;
-        int i = 0;
-        for (final node in editorState.document.root.children) {
-          final pending = batch[node.id];
-          if (pending != null && pending.orderKey == null) {
-            pending.orderKey = NoteDocumentConvert.orderKeyForIndex(i);
-            node.updateAttributes({
-              NoteDocumentConvert.attrBlockOrderKey: pending.orderKey,
-            });
-            print(node);
-          }
-          i++;
-        }
+        _assignOrderKeys(batch);
       }
-      //更新笔记的标题
+
+      // ── ② 更新笔记标题 ──
       if (needUpdateTitle) {
-        try {
-          final response = await HttpClient.instance.post<Map<String, dynamic>>(
-            '/note/title',
-            queryParameters: {
-              "noteId": _currentNoteInfo!.id,
-              "title": snapTitle,
-              "version": _currentNoteInfo!.version,
-            },
-          );
-          if (response.code == 200 && response.data != null) {
-            _currentNoteInfo = Note.fromJson(response.data!);
-            ToastUtil.success(
-              provideContext(),
-              title: "保存成功",
-              description: "标题已更改为:$snapTitle",
-              alignment: AlignmentGeometry.bottomRight,
-            );
-          } else if (response.code == 409) {
-            //修改标题冲突
-            ToastUtil.warning(
-              provideContext(),
-              title: "保存失败",
-              description: "有用户修改了内容，请刷新后重试!",
-              alignment: AlignmentGeometry.bottomRight,
-            );
-            _isUpdateTitle = true;
-            return;
-          } else {
-            ToastUtil.warning(
-              provideContext(),
-              title: "保存失败",
-              description: "网络错误：${response.message}",
-              alignment: AlignmentGeometry.bottomRight,
-            );
-            _isUpdateTitle = true;
-            return;
-          }
-        } catch (e) {
-          ToastUtil.error(
-            provideContext(),
-            title: "网络请求错误",
-            description: "标题保存失败",
-            alignment: AlignmentGeometry.bottomRight,
-          );
-        }
+        if (!await _tryUpdateTitle(snapTitle)) return;
       }
+
+      // ── ③ 构建增量更新并提交 ──
       debugPrint("准备处理增量更新");
-      // 更新笔记内容
       if (batch.isEmpty) return;
-      final diff = NoteBlockDiff(); //最后要提交的更新
-      // 预热增量更新列表
-      for (final entry in batch.entries) {
-        _PendingBlock block = entry.value;
-        try {
-          switch (block.changeType) {
-            case NodeChangeType.insert:
-              diff.addInsertBlocks(block.toNoteBlock(_noteId!));
-            case NodeChangeType.delete:
-              diff.addDeleteBlocks(block.toNoteBlock(_noteId!));
-            case NodeChangeType.updateText:
-            case NodeChangeType.updateAttr:
-              diff.addUpdateBlock(block.toNoteBlock(_noteId!));
-          }
-          throw Exception(); //记得删除
-        } catch (e) {
-          debugPrint('同步预处理阶段失败: ${block.nodeId} → $e');
-          _pending[entry.key] = block;
-        }
-      }
+      final diff = _buildDiff(batch);
       // 将增量更新提交到后端服务
       debugPrint('${diff.toJson()}');
       debugPrint("$diff");
+      flushSucceeded = true;
     } finally {
+      if (!flushSucceeded) {
+        // 保存失败，恢复缓存区，等下次 debounce 重试
+        for (final entry in batch.entries) {
+          _pending.putIfAbsent(entry.key, () => entry.value);
+        }
+        // _debounce();
+      }
       // 保证动画至少显示 600ms，让用户能感知到
       final elapsed = flushStopwatch.elapsedMilliseconds;
       if (elapsed < 600) {
@@ -472,8 +386,129 @@ class IncrementalSaveService {
       }
       _isFlushing = false;
       isFlushingNotifier.value = false;
-      if (_pending.isNotEmpty) _debounce();
     }
+  }
+
+  /// 创建笔记，成功返回 true
+  Future<bool> _tryCreateNote(String title) async {
+    try {
+      final note = Note.fromJson({
+        "title": title,
+        "id": null,
+        "notebookId": notebookId,
+      });
+      final response = await HttpClient.instance.post<Map<String, dynamic>>(
+        '/note/create',
+        data: note.toJson(),
+      );
+      if (response.code == 200 && response.data != null) {
+        final responseNote = Note.fromJson(response.data!);
+        _noteId = responseNote.id;
+        _currentNoteInfo = responseNote;
+        print(_currentNoteInfo);
+        ToastUtil.success(
+          provideContext(),
+          title: "创建成功",
+          description: "笔记: $title",
+        );
+        return true;
+      } else {
+        throw Exception(response.message ?? '创建笔记失败');
+      }
+    } catch (e) {
+      debugPrint('创建笔记失败: $e');
+      _isUpdateTitle = true;
+      return false;
+    }
+  }
+
+  /// 为新创建的笔记分配 orderKey
+  void _assignOrderKeys(Map<String, _PendingBlock> batch) {
+    int i = 0;
+    for (final node in editorState.document.root.children) {
+      final pending = batch[node.id];
+      if (pending != null && pending.orderKey == null) {
+        pending.orderKey = NoteDocumentConvert.orderKeyForIndex(i);
+        node.updateAttributes({
+          NoteDocumentConvert.attrBlockOrderKey: pending.orderKey,
+        });
+        print(node);
+      }
+      i++;
+    }
+  }
+
+  /// 更新笔记标题，成功返回 true
+  Future<bool> _tryUpdateTitle(String title) async {
+    try {
+      final response = await HttpClient.instance.post<Map<String, dynamic>>(
+        '/note/title',
+        queryParameters: {
+          "noteId": _currentNoteInfo!.id,
+          "title": title,
+          "version": _currentNoteInfo!.version,
+        },
+      );
+      if (response.code == 200 && response.data != null) {
+        _currentNoteInfo = Note.fromJson(response.data!);
+        ToastUtil.success(
+          provideContext(),
+          title: "保存成功",
+          description: "标题已更改为:$title",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        return true;
+      } else if (response.code == 409) {
+        ToastUtil.warning(
+          provideContext(),
+          title: "保存失败",
+          description: "有用户修改了内容，请刷新后重试!",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        _isUpdateTitle = true;
+        return false;
+      } else {
+        ToastUtil.warning(
+          provideContext(),
+          title: "保存失败",
+          description: "网络错误：${response.message}",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        _isUpdateTitle = true;
+        return false;
+      }
+    } catch (e) {
+      ToastUtil.error(
+        provideContext(),
+        title: "网络请求错误",
+        description: "标题保存失败",
+        alignment: AlignmentGeometry.bottomRight,
+      );
+      return false;
+    }
+  }
+
+  /// 从 batch 构建 NoteBlockDiff
+  NoteBlockDiff _buildDiff(Map<String, _PendingBlock> batch) {
+    final diff = NoteBlockDiff();
+    for (final entry in batch.entries) {
+      final block = entry.value;
+      try {
+        switch (block.changeType) {
+          case NodeChangeType.insert:
+            diff.addInsertBlocks(block.toNoteBlock(_noteId!));
+          case NodeChangeType.delete:
+            diff.addDeleteBlocks(block.toNoteBlock(_noteId!));
+          case NodeChangeType.updateText:
+          case NodeChangeType.updateAttr:
+            diff.addUpdateBlock(block.toNoteBlock(_noteId!));
+        }
+      } catch (e) {
+        debugPrint('同步预处理阶段失败: ${block.nodeId} → $e');
+        _pending[entry.key] = block;
+      }
+    }
+    return diff;
   }
 
   Future<void> _createBlock(_PendingBlock block) async {

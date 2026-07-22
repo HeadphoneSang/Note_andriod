@@ -41,6 +41,12 @@ class NodeChangeEvent {
   }
 
   Node? get rootNode {
+    // 删除操作时，节点已从树中移除，node.path 为空，_topLevelNode 不可用
+    if (changeType == NodeChangeType.delete && operation is DeleteOperation) {
+      // operation.path 不受节点移除影响，用它定位父节点
+      if (operation.path.isEmpty) return null;
+      return editorState.document.nodeAtPath([operation.path.first]);
+    }
     return _topLevelNode;
   }
 

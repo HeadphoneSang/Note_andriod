@@ -161,12 +161,14 @@ class _NoteListState extends State<NoteList> {
         controller: _scrollCtrl,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        // 给一个固定高度，让 ListView 跳过测量直接布局
+        itemExtent: 120,
         itemCount: _notes.length + (_hasMore ? 1 : 0),
         itemBuilder: (_, i) {
           if (i >= _notes.length) {
             return _buildLoadingIndicator();
           }
-          return _buildNoteCard(_notes[i]);
+          return RepaintBoundary(child: _buildNoteCard(_notes[i]));
         },
       ),
     );
@@ -267,30 +269,33 @@ class _NoteListState extends State<NoteList> {
     );
   }
 
-  /// 颜色字符串（如 "red"、"#409EFF"）转为 Color
-  Color _parseColor(String color) {
-    if (color.startsWith('#')) {
-      final hex = color.replaceFirst('#', '');
-      if (hex.length == 6) {
-        return Color(int.parse('FF$hex', radix: 16));
+  /// 颜色字符串转 Color，结果缓存避免重复解析
+  static final Map<String, Color> _colorCache = {};
+  static Color _parseColor(String color) {
+    return _colorCache.putIfAbsent(color, () {
+      if (color.startsWith('#')) {
+        final hex = color.replaceFirst('#', '');
+        if (hex.length == 6) {
+          return Color(int.parse('FF$hex', radix: 16));
+        }
       }
-    }
-    switch (color.toLowerCase()) {
-      case 'red':
-        return Colors.red;
-      case 'blue':
-        return Colors.blue;
-      case 'green':
-        return Colors.green;
-      case 'orange':
-        return Colors.orange;
-      case 'purple':
-        return Colors.purple;
-      case 'yellow':
-        return Colors.yellow;
-      default:
-        return Colors.grey;
-    }
+      switch (color.toLowerCase()) {
+        case 'red':
+          return Colors.red;
+        case 'blue':
+          return Colors.blue;
+        case 'green':
+          return Colors.green;
+        case 'orange':
+          return Colors.orange;
+        case 'purple':
+          return Colors.purple;
+        case 'yellow':
+          return Colors.yellow;
+        default:
+          return Colors.grey;
+      }
+    });
   }
 
   /// 格式化时间为友好显示
