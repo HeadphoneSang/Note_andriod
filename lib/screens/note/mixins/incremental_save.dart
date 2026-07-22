@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:note_for_android/core/editor/note_document_convert.dart';
@@ -17,7 +16,7 @@ class _PendingBlock {
   final String nodeId;
   String? chunkId;
   final String? type;
-  final String? deltaJson;
+  final Map<String, Object>? deltaJson;
   String? orderKey;
   final NodeChangeType changeType;
   int version;
@@ -46,6 +45,21 @@ class _PendingBlock {
   }
 }
 
+/// 编辑器节点的元数据（不存储在 node.attributes 中，避免触发编辑器重建）
+class _NodeMeta {
+  String? chunkId;
+  int version;
+  String? orderKey;
+  bool hasError;
+
+  _NodeMeta({
+    this.chunkId,
+    this.version = 1,
+    this.orderKey,
+    this.hasError = false,
+  });
+}
+
 /// 增量保存服务 — 处理事件分发、防抖、块级 CRUD
 class IncrementalSaveService {
   final EditorState editorState;
@@ -66,6 +80,8 @@ class IncrementalSaveService {
       _isUpdateTitle = true;
       _debounce();
     });
+    // 初始化元数据映射
+    _initNodeMeta();
   }
 
   int? _noteId; // 当前服务对应的笔记的id
@@ -74,6 +90,29 @@ class IncrementalSaveService {
   Timer? _debounceTimer; // 防抖延迟网络请求计时器
   static const _debounceDuration = Duration(milliseconds: 2000); // 防抖的时间，单位是毫秒
   final Map<String, _PendingBlock> _pending = {}; //  防抖缓存
+
+  /// 节点元数据映射，避免直接修改 node.attributes 触发编辑器重建
+  final Map<String, _NodeMeta> _nodeMeta = {};
+
+  /// 从 node.attributes 中读取初始元数据
+  void _initNodeMeta() {
+    for (final node in editorState.document.root.children) {
+      _nodeMeta[node.id] = _NodeMeta(
+        chunkId: node.attributes[NoteDocumentConvert.attrBlockId] as String?,
+        version:
+            (node.attributes[NoteDocumentConvert.attrBlockVersion] as num?)
+                ?.toInt() ??
+            1,
+        orderKey:
+            node.attributes[NoteDocumentConvert.attrBlockOrderKey] as String?,
+      );
+    }
+  }
+
+  /// 获取节点的元数据，不存在则创建默认值
+  _NodeMeta _metaFor(String nodeId) {
+    return _nodeMeta.putIfAbsent(nodeId, () => _NodeMeta());
+  }
 
   /// 上传状态通知器 — UI 监听此对象来显示/隐藏上传动画
   final isFlushingNotifier = ValueNotifier<bool>(false);
@@ -161,10 +200,7 @@ class IncrementalSaveService {
       leftOrderKey,
       rightOrderkey,
     );
-    // rangeNode[mid].attributes[NoteDocumentConvert.attrBlockOrderKey] = orderKey;
-    rangeNode[mid].updateAttributes({
-      NoteDocumentConvert.attrBlockOrderKey: orderKey,
-    });
+    _metaFor(rangeNode[mid].id).orderKey = orderKey;
     debugPrint("给节点${rangeNode[mid].path}分配的OrderKey $orderKey");
     debugPrint("${rangeNode[mid]}");
     _binaryAssignOrderKey(
@@ -191,25 +227,19 @@ class IncrementalSaveService {
     var preNode = event.previousNode;
     var nextNode = event.nextNode;
 
-    while (preNode != null &&
-        preNode.attributes[NoteDocumentConvert.attrBlockOrderKey] == null) {
+    while (preNode != null && _metaFor(preNode.id).orderKey == null) {
       preNulls.add(preNode);
       preNode = preNode.previous;
     }
-    startOrderKey = preNode == null
-        ? null
-        : preNode.attributes[NoteDocumentConvert.attrBlockOrderKey];
+    startOrderKey = preNode == null ? null : _metaFor(preNode.id).orderKey;
     allNulls.addAll(preNulls.reversed);
     allNulls.add(event.rootNode!);
 
-    while (nextNode != null &&
-        nextNode.attributes[NoteDocumentConvert.attrBlockOrderKey] == null) {
+    while (nextNode != null && _metaFor(nextNode.id).orderKey == null) {
       allNulls.add(nextNode);
       nextNode = nextNode.next;
     }
-    endOrderKey = nextNode == null
-        ? null
-        : nextNode.attributes[NoteDocumentConvert.attrBlockOrderKey];
+    endOrderKey = nextNode == null ? null : _metaFor(nextNode.id).orderKey;
 
     _binaryAssignOrderKey(
       allNulls,
@@ -232,27 +262,28 @@ class IncrementalSaveService {
       );
     }
     debugPrint('${event.rootNode}');
-    if (event.chunkOrderKey == null) {
+    final meta = _metaFor(event.nodeId);
+    if (meta.orderKey == null) {
       _assignOrderKeyForRange(event);
     }
     // 不在这里生成 UUID，延迟到 _buildDiff 发送请求时再生成
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
-      chunkId: event.chunkId,
+      chunkId: meta.chunkId,
       type: event.type,
       deltaJson: _extractDeltaJson(event.node),
-      orderKey: event.chunkOrderKey,
-      changeType: event.chunkId != null
+      orderKey: meta.orderKey,
+      changeType: meta.chunkId != null
           ? NodeChangeType.updateAttr
           : NodeChangeType.insert,
-      version: event.chunkVersion,
+      version: meta.version,
     );
     debugPrint('↑↑↑↑↑插入事件入队↑↑↑↑↑');
     _debounce();
   }
 
   void _onDelete(NodeChangeEvent event) {
-    event.node.updateAttributes({NoteDocumentConvert.attrBlockOrderKey: null});
+    _metaFor(event.nodeId).orderKey = null;
     if (event.isSubNode) {
       final rootNode = event.rootNode;
       if (rootNode == null) return;
@@ -261,7 +292,8 @@ class IncrementalSaveService {
       );
     }
     // 节点从未上传过（chunkId == null），服务端无此节点，无需删除
-    if (event.chunkId == null) {
+    final meta = _metaFor(event.nodeId);
+    if (meta.chunkId == null) {
       _pending.remove(event.nodeId);
       debugPrint('删除未上传节点: ${event.nodeId}，已忽略');
       return;
@@ -269,9 +301,9 @@ class IncrementalSaveService {
     debugPrint('$event');
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
-      chunkId: event.chunkId,
+      chunkId: meta.chunkId,
       changeType: NodeChangeType.delete,
-      version: event.chunkVersion,
+      version: meta.version,
     );
     debugPrint('↑↑↑↑删除事件入队↑↑↑↑↑');
     _debounce();
@@ -282,19 +314,20 @@ class IncrementalSaveService {
       _onUpdateText(event.copyWith(node: event.rootNode));
       return;
     }
-    if (event.chunkId == null) {
+    final meta = _metaFor(event.nodeId);
+    if (meta.chunkId == null) {
       _onInsert(event.copyWith(changeType: NodeChangeType.insert));
       return;
     }
     debugPrint('$event');
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
-      chunkId: event.chunkId,
+      chunkId: meta.chunkId,
       type: event.type,
       deltaJson: _extractDeltaJson(event.node),
-      orderKey: event.chunkOrderKey,
+      orderKey: meta.orderKey,
       changeType: NodeChangeType.updateText,
-      version: event.chunkVersion,
+      version: meta.version,
     );
     debugPrint('↑↑↑↑↑更新文本事件入队↑↑↑↑↑');
     _debounce();
@@ -305,27 +338,42 @@ class IncrementalSaveService {
       _onUpdateAttr(event.copyWith(node: event.rootNode));
       return;
     }
-    if (event.chunkId == null) {
+    final meta = _metaFor(event.nodeId);
+    if (meta.chunkId == null) {
       _onInsert(event.copyWith(changeType: NodeChangeType.insert));
       return;
     }
     debugPrint('$event');
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
-      chunkId: event.chunkId,
+      chunkId: meta.chunkId,
       type: event.type,
       deltaJson: _extractDeltaJson(event.node),
-      orderKey: event.chunkOrderKey,
+      orderKey: meta.orderKey,
       changeType: NodeChangeType.updateAttr,
-      version: event.chunkVersion,
+      version: meta.version,
     );
     debugPrint('↑↑↑↑↑更新属性事件入队↑↑↑↑↑');
     _debounce();
   }
 
-  /// 将编辑器节点（含子节点）序列化为 JSON 字符串
-  String _extractDeltaJson(Node node) {
-    return jsonEncode(node.toJson());
+  /// 安全的节点序列化，先复制 attributes 再操作，避免触发编辑器 ChangeNotifier
+  Map<String, Object> _extractDeltaJson(Node node) {
+    return _nodeToJsonSafe(node);
+  }
+
+  /// 安全的节点序列化，先复制 attributes 再操作，避免触发编辑器 ChangeNotifier
+  Map<String, Object> _nodeToJsonSafe(Node node) {
+    final map = <String, Object>{'type': node.type};
+    if (node.children.isNotEmpty) {
+      map['children'] = node.children.map(_nodeToJsonSafe).toList();
+    }
+    if (node.attributes.isNotEmpty) {
+      // 复制一份 attributes，避免 removeWhere 污染原始数据
+      map['data'] = Map<String, dynamic>.from(node.attributes)
+        ..removeWhere((_, value) => value == null);
+    }
+    return map;
   }
 
   // ── 防抖提交 ──
@@ -440,9 +488,7 @@ class IncrementalSaveService {
       final pending = batch[node.id];
       if (pending != null && pending.orderKey == null) {
         pending.orderKey = NoteDocumentConvert.orderKeyForIndex(i);
-        node.updateAttributes({
-          NoteDocumentConvert.attrBlockOrderKey: pending.orderKey,
-        });
+        _metaFor(node.id).orderKey = pending.orderKey;
         print(node);
       }
       i++;
@@ -620,34 +666,20 @@ class IncrementalSaveService {
     }
   }
 
-  /// 将成功块的版本号 +1，并更新编辑器节点属性
+  /// 将成功块的版本号 +1
   void _updateBlockVersion(String nodeId, _PendingBlock block) {
     block.version++;
-    _updateNodeAttribute(nodeId, {
-      NoteDocumentConvert.attrBlockVersion: block.version,
-    });
+    _metaFor(nodeId).version = block.version;
   }
 
-  /// 将新块生成的 UUID 持久化到编辑器节点属性，后续事件可引用
+  /// 将新块生成的 UUID 持久化到元数据，后续事件可引用
   void _persistChunkId(String nodeId, _PendingBlock block) {
     if (block.chunkId == null) return;
-    _updateNodeAttribute(nodeId, {
-      NoteDocumentConvert.attrBlockId: block.chunkId,
-    });
+    _metaFor(nodeId).chunkId = block.chunkId;
   }
 
   /// 标记/清除编辑器节点的错误状态
   void _markNodeError(String nodeId, bool hasError) {
-    _updateNodeAttribute(nodeId, {'chunkError': hasError});
-  }
-
-  /// 按 nodeId 查找编辑器节点并更新属性
-  void _updateNodeAttribute(String nodeId, Map<String, dynamic> attrs) {
-    final idx = editorState.document.root.children.indexWhere(
-      (n) => n.id == nodeId,
-    );
-    if (idx < 0) return;
-    final node = editorState.document.nodeAtPath([idx]);
-    node?.updateAttributes(attrs);
+    _metaFor(nodeId).hasError = hasError;
   }
 }

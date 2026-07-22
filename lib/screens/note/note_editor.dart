@@ -101,62 +101,65 @@ class _NoteEditorState extends State<NoteEditor> {
       body: Stack(
         children: [
           Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: TextField(
-              controller: _titleCtrl,
-              decoration: const InputDecoration(
-                hintText: '标题',
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
-                isDense: true,
-              ),
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Column(
-                children: [
-                  MobileToolbar(
-                    editorState: _editorState,
-                    toolbarItems: [
-                      textDecorationMobileToolbarItem,
-                      headingMobileToolbarItem,
-                      blocksMobileToolbarItem,
-                      listMobileToolbarItem,
-                      todoListMobileToolbarItem,
-                      codeMobileToolbarItem,
-                      quoteMobileToolbarItem,
-                      dividerMobileToolbarItem,
-                      linkMobileToolbarItem,
-                      _tableInsertItem,
-                      _tableActionItem,
-                      buildTextAndBackgroundColorMobileToolbarItem(),
-                    ],
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: TextField(
+                  controller: _titleCtrl,
+                  decoration: const InputDecoration(
+                    hintText: '标题',
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                    isDense: true,
                   ),
-                  Expanded(
-                    child: InteractiveViewer(
-                      minScale: 0.5,
-                      maxScale: 3.0,
-                      child: AppFlowyEditor(
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    children: [
+                      MobileToolbar(
                         editorState: _editorState,
-                        editorStyle: const EditorStyle.mobile(
-                          padding: EdgeInsets.zero,
+                        toolbarItems: [
+                          textDecorationMobileToolbarItem,
+                          headingMobileToolbarItem,
+                          blocksMobileToolbarItem,
+                          listMobileToolbarItem,
+                          todoListMobileToolbarItem,
+                          codeMobileToolbarItem,
+                          quoteMobileToolbarItem,
+                          dividerMobileToolbarItem,
+                          linkMobileToolbarItem,
+                          _tableInsertItem,
+                          _tableActionItem,
+                          buildTextAndBackgroundColorMobileToolbarItem(),
+                        ],
+                      ),
+                      Expanded(
+                        child: InteractiveViewer(
+                          minScale: 0.5,
+                          maxScale: 3.0,
+                          child: AppFlowyEditor(
+                            editorState: _editorState,
+                            editorStyle: const EditorStyle.mobile(
+                              padding: EdgeInsets.zero,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
-      // ── 右下角上传动画 ──
+          // ── 右下角上传动画 ──
           ValueListenableBuilder<bool>(
             valueListenable: _saveService.isFlushingNotifier,
             builder: (context, isFlushing, _) {
