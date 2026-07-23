@@ -82,9 +82,7 @@ class _NoteEditorState extends State<NoteEditor> {
 
   void _cutSelection() {
     _copySelection();
-    _editorState.deleteSelection(
-      _lastSelection!,
-    );
+    _editorState.deleteSelection(_lastSelection!);
   }
 
   Future<void> _pasteClipboard() async {
@@ -152,7 +150,11 @@ class _NoteEditorState extends State<NoteEditor> {
     );
   }
 
-  Widget _contextMenuButton(IconData icon, String label, VoidCallback onPressed) {
+  Widget _contextMenuButton(
+    IconData icon,
+    String label,
+    VoidCallback onPressed,
+  ) {
     return InkWell(
       onTap: onPressed,
       borderRadius: BorderRadius.circular(24),
@@ -163,7 +165,10 @@ class _NoteEditorState extends State<NoteEditor> {
           children: [
             Icon(icon, color: Colors.white, size: 18),
             const SizedBox(width: 4),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
           ],
         ),
       ),
@@ -191,6 +196,109 @@ class _NoteEditorState extends State<NoteEditor> {
     }
   }
 
+  // ── 下拉刷新 ──
+  Future<void> _onRefresh() async {
+    // TODO: 实现刷新逻辑
+  }
+  void _showNoteInfoSheet(BuildContext context) {
+    final summaryCtrl = TextEditingController(
+      text: _saveService.currentNoteInfo?.summary ?? "",
+    );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 标题
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "笔记信息",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // 摘要
+              const Text(
+                "摘要",
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 4),
+              TextField(
+                controller: summaryCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: "添加摘要...",
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.all(8),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // 标签
+              const Text(
+                "标签",
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  ...(_saveService.currentNoteInfo?.tags ?? []).map((tag) {
+                    return Chip(
+                      label: Text(
+                        tag.name,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                      onDeleted: () {},
+                    );
+                  }),
+                  ActionChip(
+                    label: const Text("+ 添加标签", style: TextStyle(fontSize: 12)),
+                    onPressed: () {},
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // 保存按钮
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    // TODO: 保存摘要和标签
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text("保存"),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // ── 构建 ──
 
   @override
@@ -199,6 +307,11 @@ class _NoteEditorState extends State<NoteEditor> {
       appBar: AppBar(
         title: const Text('新建笔记'),
         actions: [
+          if (_saveService.noteId != null)
+            IconButton(
+              icon: const Icon(Icons.info_outline_rounded),
+              onPressed: () => _showNoteInfoSheet(context),
+            ),
           IconButton(
             onPressed: _isSaving ? null : _saveNote,
             icon: _isSaving
@@ -211,103 +324,140 @@ class _NoteEditorState extends State<NoteEditor> {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: TextField(
-                  controller: _titleCtrl,
-                  decoration: const InputDecoration(
-                    hintText: '标题',
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                    isDense: true,
-                  ),
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Column(
-                    children: [
-                      MobileToolbar(
-                        editorState: _editorState,
-                        toolbarItems: [
-                          textDecorationMobileToolbarItem,
-                          headingMobileToolbarItem,
-                          blocksMobileToolbarItem,
-                          listMobileToolbarItem,
-                          todoListMobileToolbarItem,
-                          codeMobileToolbarItem,
-                          quoteMobileToolbarItem,
-                          dividerMobileToolbarItem,
-                          linkMobileToolbarItem,
-                          _tableInsertItem,
-                          _tableActionItem,
-                          buildTextAndBackgroundColorMobileToolbarItem(),
-                        ],
+      body: RefreshIndicator(
+        onRefresh: _onRefresh,
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: TextField(
+                    controller: _titleCtrl,
+                    decoration: const InputDecoration(
+                      hintText: '标题',
+                      hintStyle: TextStyle(
+                        color: Color.fromARGB(255, 145, 145, 145),
                       ),
-                      Expanded(
-                        child: AppFlowyEditor(
-                          editorState: _editorState,
-                          editorStyle: const EditorStyle.mobile(
-                            padding: EdgeInsets.zero,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          // ── 浮动工具栏（选中文本时显示在选中位置上方） ──
-          if (_hasSelection)
-            _buildFloatingToolbar(),
-
-          // ── 右下角上传动画 ──
-          ValueListenableBuilder<bool>(
-            valueListenable: _saveService.isFlushingNotifier,
-            builder: (context, isFlushing, _) {
-              return AnimatedOpacity(
-                opacity: isFlushing ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 16, bottom: 16),
-                  child: Align(
-                    alignment: Alignment.bottomRight,
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black26,
-                            blurRadius: 6,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Padding(
-                        padding: EdgeInsets.all(8),
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
-                      ),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                      isDense: true,
+                    ),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-              );
-            },
-          ),
-        ],
+                const Divider(height: 1),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 0),
+                    child: Column(
+                      children: [
+                        MobileToolbar(
+                          editorState: _editorState,
+                          toolbarItems: [
+                            textDecorationMobileToolbarItem,
+                            headingMobileToolbarItem,
+                            blocksMobileToolbarItem,
+                            listMobileToolbarItem,
+                            todoListMobileToolbarItem,
+                            codeMobileToolbarItem,
+                            quoteMobileToolbarItem,
+                            dividerMobileToolbarItem,
+                            linkMobileToolbarItem,
+                            _tableInsertItem,
+                            _tableActionItem,
+                            buildTextAndBackgroundColorMobileToolbarItem(),
+                          ],
+                        ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 8,
+                            ),
+                            child: AppFlowyEditor(
+                              editorState: _editorState,
+                              editorStyle: const EditorStyle.mobile(
+                                padding: EdgeInsets.zero,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // ── 浮动工具栏（选中文本时显示在选中位置上方） ──
+            if (_hasSelection) _buildFloatingToolbar(),
+
+            // ── 右下角上传动画 ──
+            ValueListenableBuilder<bool>(
+              valueListenable: _saveService.isFlushingNotifier,
+              builder: (context, isFlushing, _) {
+                return AnimatedOpacity(
+                  opacity: isFlushing ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 16, bottom: 16),
+                    child: Align(
+                      alignment: Alignment.bottomRight,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black26,
+                              blurRadius: 6,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            // ── 最近保存时间 ──
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: ValueListenableBuilder<DateTime?>(
+                  valueListenable: _saveService.lastSavedTime,
+                  builder: (context, time, _) {
+                    if (time == null) return SizedBox.shrink();
+                    final formatted =
+                        time.hour.toString().padLeft(2, '0') +
+                        ':' +
+                        time.minute.toString().padLeft(2, '0') +
+                        ':' +
+                        time.second.toString().padLeft(2, '0');
+                    return Text(
+                      '最近一次保存: ' + formatted,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade400,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -116,6 +116,10 @@ class IncrementalSaveService {
 
   /// 上传状态通知器 — UI 监听此对象来显示/隐藏上传动画
   final isFlushingNotifier = ValueNotifier<bool>(false);
+/// 最近一次成功保存的时间
+  ValueNotifier<DateTime?> lastSavedTime = ValueNotifier<DateTime?>(null);
+/// 当前笔记信息
+  Note? get currentNoteInfo => _currentNoteInfo;
 
   // 就是Note本身是否有变化
   bool get haveTotalChange {
@@ -464,12 +468,8 @@ class IncrementalSaveService {
         final responseNote = Note.fromJson(response.data!);
         _noteId = responseNote.id;
         _currentNoteInfo = responseNote;
+        lastSavedTime.value = DateTime.now();
         print(_currentNoteInfo);
-        ToastUtil.success(
-          provideContext(),
-          title: "创建成功",
-          description: "笔记: $title",
-        );
         return true;
       } else {
         throw Exception(response.message ?? '创建笔记失败');
@@ -508,13 +508,9 @@ class IncrementalSaveService {
       );
       if (response.code == 200 && response.data != null) {
         _currentNoteInfo = Note.fromJson(response.data!);
-        ToastUtil.success(
-          provideContext(),
-          title: "保存成功",
-          description: "标题已更改为:$title",
-          alignment: AlignmentGeometry.bottomRight,
-        );
+        lastSavedTime.value = DateTime.now();
         return true;
+
       } else if (response.code == 409) {
         ToastUtil.warning(
           provideContext(),
@@ -627,34 +623,28 @@ class IncrementalSaveService {
             }
             _persistChunkId(entry.key, entry.value);
           }
-          ToastUtil.success(
+          lastSavedTime.value = DateTime.now();
+          }
+          return !result.hasConflict;
+        } else if (response.code == 409) {
+          // 版本冲突，全部失败
+          for (final entry in batch.entries) {
+            final block = entry.value;
+            if (block.changeType == NodeChangeType.insert) {
+              block.chunkId = null;
+            }
+            _pending[entry.key] = block;
+          }
+          ToastUtil.warning(
             provideContext(),
-            title: "保存成功",
-            description: "内容已保存",
+            title: "保存失败",
+            description: "版本冲突，请刷新页面",
             alignment: AlignmentGeometry.bottomRight,
           );
+          return false;
+        } else {
+          throw Exception(response.message ?? '保存失败');
         }
-        return !result.hasConflict;
-      } else if (response.code == 409) {
-        // 版本冲突，全部失败
-        for (final entry in batch.entries) {
-          final block = entry.value;
-          // 新块上传失败 → 清除 chunkId
-          if (block.changeType == NodeChangeType.insert) {
-            block.chunkId = null;
-          }
-          _pending[entry.key] = block;
-        }
-        ToastUtil.warning(
-          provideContext(),
-          title: "保存失败",
-          description: "版本冲突，请刷新页面",
-          alignment: AlignmentGeometry.bottomRight,
-        );
-        return false;
-      } else {
-        throw Exception(response.message ?? '保存失败');
-      }
     } catch (e) {
       ToastUtil.error(
         provideContext(),
@@ -681,5 +671,19 @@ class IncrementalSaveService {
   /// 标记/清除编辑器节点的错误状态
   void _markNodeError(String nodeId, bool hasError) {
     _metaFor(nodeId).hasError = hasError;
+    // 同步到编辑器节点属性，触发视觉渲染
+    _updateNodeAttribute(nodeId, {'chunkError': hasError});
+  }
+
+  /// 按 nodeId 查找编辑器节点并更新属性
+  void _updateNodeAttribute(String nodeId, Map<String, dynamic> attrs) {
+    final idx = editorState.document.root.children.indexWhere(
+      (n) => n.id == nodeId,
+    );
+    if (idx < 0) return;
+    final node = editorState.document.nodeAtPath([idx]);
+    if (node != null) {
+      node.updateAttributes(attrs);
+    }
   }
 }
