@@ -1,8 +1,9 @@
-// ignore_for_file: avoid_print
+// ignore_for_file: avoid_debugPrint
 
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ApiResponse — 统一的后端响应模型
@@ -100,7 +101,7 @@ class HttpException implements Exception {
 /// // 2. 在任意地方发起请求
 /// final res = await HttpClient.instance.get('/hello');
 /// if (res.isSuccess) {
-///   print(res.data);
+///   debugPrint(res.data);
 /// }
 /// ```
 ///
@@ -343,7 +344,7 @@ class HttpClient {
       return _handleResponse<T>(response);
     } on DioException catch (e) {
       // Dio 自身抛出的异常（超时、网络错误、HTTP 错误码等）
-      print('DioException: ${e.type} | ${e.message} | ${e.error}');
+      debugPrint('DioException: ${e.type} | ${e.message} | ${e.error}');
       return _handleDioError<T>(e);
     } catch (e) {
       // 其他未知异常（如 JSON 解析失败、空指针等）
@@ -359,7 +360,7 @@ class HttpClient {
   ///   - 如果是纯文本 → 直接放进 data 字段
   ApiResponse<T> _handleResponse<T>(Response<dynamic> response) {
     var data = response.data;
-    print('原始响应数据: $data');
+    debugPrint('原始响应数据: $data');
 
     // 尝试将原始字符串解析为 JSON
     if (data is String && data.trim().isNotEmpty) {
@@ -467,7 +468,7 @@ class HttpClient {
   ///   'https://example.com/file.zip',
   ///   '/data/user/0/.../file.zip',
   ///   onReceiveProgress: (received, total) {
-  ///     print('${received / total * 100}%');
+  ///     debugPrint('${received / total * 100}%');
   ///   },
   /// );
   /// ```
@@ -507,7 +508,7 @@ class HttpClient {
   /// final res = await HttpClient.instance.upload(
   ///   '/upload',
   ///   formData: formData,
-  ///   onSendProgress: (sent, total) => print('$sent / $total'),
+  ///   onSendProgress: (sent, total) => debugPrint('$sent / $total'),
   /// );
   /// ```
   Future<ApiResponse<T>> upload<T>(
@@ -545,10 +546,10 @@ class _LogInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     // 打印请求方法 + 完整 URL
-    print('🌐 [HTTP] --> ${options.method} ${options.uri}');
+    debugPrint('🌐 [HTTP] --> ${options.method} ${options.uri}');
     if (options.data != null) {
       // 如果有请求体，也打印出来
-      print('📦 [HTTP] Body: ${options.data}');
+      debugPrint('📦 [HTTP] Body: ${options.data}');
     }
     // 放行，让请求继续往下走
     handler.next(options);
@@ -557,7 +558,7 @@ class _LogInterceptor extends Interceptor {
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
     // 打印响应状态码 + URL
-    print(
+    debugPrint(
       '🌐 [HTTP] <-- ${response.statusCode} ${response.requestOptions.uri}',
     );
     handler.next(response);
@@ -566,7 +567,7 @@ class _LogInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     // 打印错误类型和详情
-    print('❌ [HTTP] ERROR: type=${err.type} | message=${err.message}');
+    debugPrint('❌ [HTTP] ERROR: type=${err.type} | message=${err.message}');
     handler.next(err);
   }
 }
@@ -613,7 +614,7 @@ class _ErrorInterceptor extends Interceptor {
     if (err.type == DioExceptionType.connectionError ||
         err.type == DioExceptionType.connectionTimeout ||
         err.type == DioExceptionType.receiveTimeout) {
-      print('⚠️ [HTTP] 网络异常: ${err.message}');
+      debugPrint('⚠️ [HTTP] 网络异常: ${err.message}');
     }
     handler.next(err);
   }

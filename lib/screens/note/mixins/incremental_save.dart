@@ -88,7 +88,7 @@ class IncrementalSaveService {
   bool _isFlushing = false; // 文本块防抖缓冲池锁
   bool _isUpdateTitle = false;
   Timer? _debounceTimer; // 防抖延迟网络请求计时器
-  static const _debounceDuration = Duration(milliseconds: 2000); // 防抖的时间，单位是毫秒
+  static const _debounceDuration = Duration(milliseconds: 3000); // 防抖的时间，单位是毫秒
   final Map<String, _PendingBlock> _pending = {}; //  防抖缓存
 
   /// 节点元数据映射，避免直接修改 node.attributes 触发编辑器重建

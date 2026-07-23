@@ -56,7 +56,7 @@ class Note {
               ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      version: (json['version'] as double?)?.toInt(),
+      version: (json['version'] as num?)?.toInt(),
     );
   }
 
