@@ -203,13 +203,13 @@ class _NoteEditorState extends State<NoteEditor> {
   Future<void> _onRefresh() async {
     if (_isRefreshing) return;
     _isRefreshing = true;
+    setState(() {});
     // 先保存当前未提交的修改
     try {
       await _saveService.flush();
     } catch (_) {
       // 保存失败不影响刷新
     }
-    debugPrint("刷新");
     setState(() {});
     try {
       final response = await HttpClient.instance.get(
