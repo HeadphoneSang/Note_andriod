@@ -109,6 +109,27 @@ class IncrementalSaveService {
     }
   }
 
+  // 清空并重新构建节点元数据（刷新时调用）
+  void resetNodeMeta(
+    List<NoteBlock> blocks,
+    Map<String, String> NoteToNodeMap,
+  ) {
+    _nodeMeta.clear();
+    for (final block in blocks) {
+      if (block.id == null) continue;
+      final id = NoteToNodeMap[block.id];
+      _nodeMeta[id!] = _NodeMeta(
+        chunkId: block.id,
+        version: block.version,
+        orderKey: block.orderKey,
+      );
+    }
+  }
+
+  void resetPending() {
+    _pending.clear();
+  }
+
   /// 获取节点的元数据，不存在则创建默认值
   _NodeMeta _metaFor(String nodeId) {
     return _nodeMeta.putIfAbsent(nodeId, () => _NodeMeta());
@@ -116,9 +137,11 @@ class IncrementalSaveService {
 
   /// 上传状态通知器 — UI 监听此对象来显示/隐藏上传动画
   final isFlushingNotifier = ValueNotifier<bool>(false);
-/// 最近一次成功保存的时间
+
+  /// 最近一次成功保存的时间
   ValueNotifier<DateTime?> lastSavedTime = ValueNotifier<DateTime?>(null);
-/// 当前笔记信息
+
+  /// 当前笔记信息
   Note? get currentNoteInfo => _currentNoteInfo;
 
   // 就是Note本身是否有变化
@@ -128,6 +151,15 @@ class IncrementalSaveService {
 
   /// 取消防抖定时器
   void cancelDebounce() => _debounceTimer?.cancel();
+
+  /// 取消所有未完成的保存操作，清空缓存
+  void cancelAll() {
+    cancelDebounce();
+    _isFlushing = false;
+    isFlushingNotifier.value = false;
+    _isUpdateTitle = false;
+    _pending.clear();
+  }
 
   /// 等待当前刷新完成
   Future<void> flush() async {
@@ -510,7 +542,6 @@ class IncrementalSaveService {
         _currentNoteInfo = Note.fromJson(response.data!);
         lastSavedTime.value = DateTime.now();
         return true;
-
       } else if (response.code == 409) {
         ToastUtil.warning(
           provideContext(),
@@ -624,27 +655,27 @@ class IncrementalSaveService {
             _persistChunkId(entry.key, entry.value);
           }
           lastSavedTime.value = DateTime.now();
-          }
-          return !result.hasConflict;
-        } else if (response.code == 409) {
-          // 版本冲突，全部失败
-          for (final entry in batch.entries) {
-            final block = entry.value;
-            if (block.changeType == NodeChangeType.insert) {
-              block.chunkId = null;
-            }
-            _pending[entry.key] = block;
-          }
-          ToastUtil.warning(
-            provideContext(),
-            title: "保存失败",
-            description: "版本冲突，请刷新页面",
-            alignment: AlignmentGeometry.bottomRight,
-          );
-          return false;
-        } else {
-          throw Exception(response.message ?? '保存失败');
         }
+        return !result.hasConflict;
+      } else if (response.code == 409) {
+        // 版本冲突，全部失败
+        for (final entry in batch.entries) {
+          final block = entry.value;
+          if (block.changeType == NodeChangeType.insert) {
+            block.chunkId = null;
+          }
+          _pending[entry.key] = block;
+        }
+        ToastUtil.warning(
+          provideContext(),
+          title: "保存失败",
+          description: "版本冲突，请刷新页面",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        return false;
+      } else {
+        throw Exception(response.message ?? '保存失败');
+      }
     } catch (e) {
       ToastUtil.error(
         provideContext(),

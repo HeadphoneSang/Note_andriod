@@ -32,7 +32,9 @@ class NoteDocumentConvert {
   static Document toDocument(List<NoteBlock> blocks) {
     final children = <Node>[];
     for (final block in blocks) {
-      children.add(_blockToNode(block));
+      // noteNodeMap[block.id,no]
+      Node currentNode = _blockToNode(block);
+      children.add(currentNode);
     }
     return Document(
       root: Node(type: 'page', children: children),
@@ -46,8 +48,10 @@ class NoteDocumentConvert {
   /// 如果 deltaJson 是完整的 Node JSON 格式（{type, data, children}），
   /// 直接用 Node.fromJson 还原整棵子树，嵌套的子块也会被还原。
   static Node _blockToNode(NoteBlock block) {
-    if (block.deltaJson is Map<String, Object>) {
-      final node = Node.fromJson(block.deltaJson as Map<String, Object>);
+    if (block.deltaJson is Map) {
+      final node = Node.fromJson(
+        Map<String, Object>.from(block.deltaJson as Map),
+      );
       // 注入数据库 id / version / orderKey
       node.updateAttributes({
         attrBlockId: block.id,

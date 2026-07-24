@@ -2,6 +2,9 @@ import 'dart:async';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:note_for_android/core/editor/note_document_convert.dart';
+import 'package:note_for_android/core/network/http_client.dart';
+import 'package:note_for_android/models/note_block.dart';
 import 'package:note_for_android/screens/note/mixins/incremental_save.dart';
 import 'package:note_for_android/screens/note/widgets/table_toolbar_items.dart';
 import 'package:note_for_android/utils/toast_util.dart';
@@ -23,6 +26,7 @@ class _NoteEditorState extends State<NoteEditor> {
   late final _tableActionItem = createTableActionToolbarItem();
   late final IncrementalSaveService _saveService;
   bool _isSaving = false;
+  bool _isRefreshing = false;
   StreamSubscription? _txSub;
   Selection? _lastSelection;
 
@@ -196,10 +200,68 @@ class _NoteEditorState extends State<NoteEditor> {
     }
   }
 
-  // ── 下拉刷新 ──
   Future<void> _onRefresh() async {
-    // TODO: 实现刷新逻辑
+    if (_isRefreshing) return;
+    _isRefreshing = true;
+    // 先保存当前未提交的修改
+    try {
+      await _saveService.flush();
+    } catch (_) {
+      // 保存失败不影响刷新
+    }
+    debugPrint("刷新");
+    setState(() {});
+    try {
+      final response = await HttpClient.instance.get(
+        "/noteBlock/getBlocks",
+        queryParameters: {"noteId": _saveService.noteId},
+      );
+      if (response.code == 200 && response.data != null) {
+        List<dynamic> blocksJson = response.data;
+        List<NoteBlock> blocks = blocksJson
+            .map((json) => NoteBlock.fromJson(json))
+            .toList();
+        // 构建新文档
+        Document newDoc = NoteDocumentConvert.toDocument(blocks);
+        // 用事务替换当前文档内容
+        final transaction = Transaction(document: _editorState.document);
+        // 删除所有现有节点
+        for (
+          int i = _editorState.document.root.children.length - 1;
+          i >= 0;
+          i--
+        ) {
+          transaction.deleteNode(_editorState.document.root.children[i]);
+        }
+        // 插入新节点
+        for (final node in newDoc.root.children) {
+          transaction.insertNode([
+            _editorState.document.root.children.length,
+          ], node);
+        }
+        await _editorState.apply(transaction);
+        // 构建新的文档中的chunkId2NodeIdMap
+        final Map<String, String> chunkId2NodeIdMap = {};
+        _editorState.document.root.children.forEach((node) {
+          chunkId2NodeIdMap[node.attributes[NoteDocumentConvert.attrBlockId]] =
+              node.id;
+        });
+        // 清空_nodeMeta，根据获得的blocks重新构建新的_nodeMeta
+        _saveService.resetNodeMeta(blocks, chunkId2NodeIdMap);
+        // 清空_pending，防止触发更新。
+        _saveService.resetPending();
+        debugPrint("刷新成功");
+      } else {}
+    } catch (e, stackTrace) {
+      debugPrint("$e");
+      debugPrint("$stackTrace");
+      if (mounted) ToastUtil.error(context, title: "网络错误", description: "刷新失败");
+    } finally {
+      _isRefreshing = false;
+      if (mounted) setState(() {});
+    }
   }
+
   void _showNoteInfoSheet(BuildContext context) {
     final summaryCtrl = TextEditingController(
       text: _saveService.currentNoteInfo?.summary ?? "",
@@ -307,6 +369,10 @@ class _NoteEditorState extends State<NoteEditor> {
       appBar: AppBar(
         title: const Text('新建笔记'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _isRefreshing ? null : _onRefresh,
+          ),
           if (_saveService.noteId != null)
             IconButton(
               icon: const Icon(Icons.info_outline_rounded),
