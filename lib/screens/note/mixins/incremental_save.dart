@@ -110,7 +110,7 @@ class IncrementalSaveService {
   }
 
   // 清空并重新构建节点元数据（刷新时调用）
-  void resetNodeMeta(
+  void _resetNodeMeta(
     List<NoteBlock> blocks,
     Map<String, String> NoteToNodeMap,
   ) {
@@ -126,7 +126,7 @@ class IncrementalSaveService {
     }
   }
 
-  void resetPending() {
+  void _resetPending() {
     _pending.clear();
   }
 
@@ -481,6 +481,85 @@ class IncrementalSaveService {
       }
       _isFlushing = false;
       isFlushingNotifier.value = false;
+    }
+  }
+
+  Future<bool> tryLoadChunks() async {
+    try {
+      final response = await HttpClient.instance.get(
+        "/noteBlock/getBlocks",
+        queryParameters: {"noteId": noteId},
+      );
+      if (response.code == 200 && response.data != null) {
+        List<dynamic> blocksJson = response.data;
+        List<NoteBlock> blocks = blocksJson
+            .map((json) => NoteBlock.fromJson(json))
+            .toList();
+        // 构建新文档
+        Document newDoc = NoteDocumentConvert.toDocument(blocks);
+        // 用事务替换当前文档内容
+        final transaction = Transaction(document: editorState.document);
+        // 删除所有现有节点
+        for (
+          int i = editorState.document.root.children.length - 1;
+          i >= 0;
+          i--
+        ) {
+          transaction.deleteNode(editorState.document.root.children[i]);
+        }
+        // 插入新节点
+        for (final node in newDoc.root.children) {
+          transaction.insertNode([
+            editorState.document.root.children.length,
+          ], node);
+        }
+        await editorState.apply(transaction);
+        // 构建新的文档中的chunkId2NodeIdMap
+        final Map<String, String> chunkId2NodeIdMap = {};
+        for (var node in editorState.document.root.children) {
+          chunkId2NodeIdMap[node.attributes[NoteDocumentConvert.attrBlockId]] =
+              node.id;
+        }
+        // 清空_nodeMeta，根据获得的blocks重新构建新的_nodeMeta
+        _resetNodeMeta(blocks, chunkId2NodeIdMap);
+        // 清空_pending，防止触发更新。
+        _resetPending();
+        return true;
+      } else {
+        if (provideContext().mounted) {
+          ToastUtil.error(
+            provideContext(),
+            title: "加载错误",
+            description: response.message,
+          );
+        }
+        return false;
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<bool> tryLoadNote() async {
+    try {
+      final response = await HttpClient.instance.get<Map<String, dynamic>>(
+        '/note/getNote',
+        queryParameters: {"noteId": _noteId},
+      );
+      if (response.code == 200 && response.data != null) {
+        final currentNote = Note.fromJson(response.data!);
+        _currentNoteInfo = currentNote;
+        return true;
+      } else {
+        ToastUtil.error(
+          provideContext(),
+          title: "网络错误",
+          description: response.message,
+        );
+        return false;
+      }
+    } catch (e) {
+      rethrow;
     }
   }
 

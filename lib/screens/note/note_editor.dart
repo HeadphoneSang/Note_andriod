@@ -203,61 +203,39 @@ class _NoteEditorState extends State<NoteEditor> {
   Future<void> _onRefresh() async {
     if (_isRefreshing) return;
     _isRefreshing = true;
-    setState(() {});
+    if (!mounted) return;
+    // 显示加载弹窗
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
     // 先保存当前未提交的修改
     try {
       await _saveService.flush();
     } catch (_) {
       // 保存失败不影响刷新
     }
-    setState(() {});
     try {
-      final response = await HttpClient.instance.get(
-        "/noteBlock/getBlocks",
-        queryParameters: {"noteId": _saveService.noteId},
-      );
-      if (response.code == 200 && response.data != null) {
-        List<dynamic> blocksJson = response.data;
-        List<NoteBlock> blocks = blocksJson
-            .map((json) => NoteBlock.fromJson(json))
-            .toList();
-        // 构建新文档
-        Document newDoc = NoteDocumentConvert.toDocument(blocks);
-        // 用事务替换当前文档内容
-        final transaction = Transaction(document: _editorState.document);
-        // 删除所有现有节点
-        for (
-          int i = _editorState.document.root.children.length - 1;
-          i >= 0;
-          i--
-        ) {
-          transaction.deleteNode(_editorState.document.root.children[i]);
-        }
-        // 插入新节点
-        for (final node in newDoc.root.children) {
-          transaction.insertNode([
-            _editorState.document.root.children.length,
-          ], node);
-        }
-        await _editorState.apply(transaction);
-        // 构建新的文档中的chunkId2NodeIdMap
-        final Map<String, String> chunkId2NodeIdMap = {};
-        _editorState.document.root.children.forEach((node) {
-          chunkId2NodeIdMap[node.attributes[NoteDocumentConvert.attrBlockId]] =
-              node.id;
-        });
-        // 清空_nodeMeta，根据获得的blocks重新构建新的_nodeMeta
-        _saveService.resetNodeMeta(blocks, chunkId2NodeIdMap);
-        // 清空_pending，防止触发更新。
-        _saveService.resetPending();
-        debugPrint("刷新成功");
-      } else {}
+      // 加载最新的笔记元信息
+      if (!await _saveService.tryLoadNote()) return;
+      // 加载最新的笔记块内容
+      if (!await _saveService.tryLoadChunks()) return;
+      if (mounted) {
+        ToastUtil.success(
+          context,
+          title: "刷新成功",
+          description: "内容已更新",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+      }
     } catch (e, stackTrace) {
       debugPrint("$e");
       debugPrint("$stackTrace");
       if (mounted) ToastUtil.error(context, title: "网络错误", description: "刷新失败");
     } finally {
       _isRefreshing = false;
+      if (mounted) Navigator.of(context).pop();
       if (mounted) setState(() {});
     }
   }
