@@ -162,7 +162,7 @@ class _NoteListState extends State<NoteList> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         // 给一个固定高度，让 ListView 跳过测量直接布局
-        itemExtent: 120,
+        itemExtent: 145,
         itemCount: _notes.length + (_hasMore ? 1 : 0),
         itemBuilder: (_, i) {
           if (i >= _notes.length) {

@@ -200,6 +200,33 @@ class _NoteEditorState extends State<NoteEditor> {
     }
   }
 
+  /// 格式化日期
+  String _formatDate(DateTime? date) {
+    if (date == null) return "-";
+    return "${date.year}-${date.month.toString().padLeft(2, "0")}-${date.day.toString().padLeft(2, "0")} ${date.hour.toString().padLeft(2, "0")}:${date.minute.toString().padLeft(2, "0")}";
+  }
+
+  /// 当前笔记总字数
+  int get _wordCount {
+    int count = 0;
+    for (final node in _editorState.document.root.children) {
+      count += node.delta?.toPlainText().length ?? 0;
+    }
+    return count;
+  }
+
+  /// 信息栏小标签
+  Widget _infoChip(IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: Colors.grey),
+        const SizedBox(width: 4),
+        Text(text, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      ],
+    );
+  }
+
   Future<void> _onRefresh() async {
     if (_isRefreshing) return;
     _isRefreshing = true;
@@ -393,7 +420,53 @@ class _NoteEditorState extends State<NoteEditor> {
                     ),
                   ),
                 ),
-                const Divider(height: 1),
+                // const Divider(height: 1),
+                // ── 笔记信息栏 ──
+                _saveService.noteId != null
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          children: [
+                            _infoChip(
+                              Icons.access_time_rounded,
+                              _formatDate(
+                                _saveService.currentNoteInfo?.createdAt,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            _infoChip(Icons.text_fields, _wordCount.toString()),
+                            const SizedBox(width: 12),
+                            _infoChip(
+                              Icons.folder_rounded,
+                              "笔记本:" + (widget.notebookId?.toString() ?? "-"),
+                            ),
+                          ],
+                        ),
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          children: [
+                            _infoChip(
+                              Icons.access_time_rounded,
+                              _formatDate(DateTime.now()),
+                            ),
+                            const SizedBox(width: 12),
+                            _infoChip(Icons.text_fields, _wordCount.toString()),
+                            const SizedBox(width: 12),
+                            _infoChip(
+                              Icons.folder_rounded,
+                              "笔记本:" + (widget.notebookId?.toString() ?? "-"),
+                            ),
+                          ],
+                        ),
+                      ),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 0),
