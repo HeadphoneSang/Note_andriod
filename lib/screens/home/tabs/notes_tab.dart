@@ -465,6 +465,7 @@ class _NotesTabState extends State<NotesTab>
       getPageNotes: _selectedNotebookId != null
           ? _getPageNotes
           : _getPageNotesByUserId,
+      onNoteTap: (note) => {debugPrint("点击了${note.title}")},
     );
   }
 }

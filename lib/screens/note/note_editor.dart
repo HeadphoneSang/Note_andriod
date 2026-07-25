@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
 import 'package:note_for_android/models/note_block.dart';
+import 'package:note_for_android/models/notebook.dart';
 import 'package:note_for_android/screens/note/mixins/incremental_save.dart';
 import 'package:note_for_android/screens/note/widgets/table_toolbar_items.dart';
 import 'package:note_for_android/utils/toast_util.dart';
@@ -29,6 +30,7 @@ class _NoteEditorState extends State<NoteEditor> {
   bool _isRefreshing = false;
   StreamSubscription? _txSub;
   Selection? _lastSelection;
+  late List<Notebook> _notebookAbList;
 
   @override
   void initState() {
@@ -52,6 +54,32 @@ class _NoteEditorState extends State<NoteEditor> {
     });
 
     _editorState.selectionNotifier.addListener(_onSelectionChanged);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+      _saveService
+          .tryLoadAllNotebooks()
+          .then((abList) {
+            _notebookAbList =
+                [
+                  Notebook.fromJson({"id": null, "name": "全部笔记"}),
+                ] +
+                abList;
+            debugPrint("$_notebookAbList");
+          })
+          .onError<Exception>((error, stackTrace) {
+            if (mounted) {
+              ToastUtil.error(context, title: "网络错误", description: "笔记本列表加载失败");
+            }
+          })
+          .whenComplete(() {
+            if (mounted) Navigator.of(context).pop();
+          });
+    });
   }
 
   @override

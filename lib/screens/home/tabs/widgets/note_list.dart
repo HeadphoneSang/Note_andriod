@@ -7,11 +7,13 @@ import '../../../../models/page_result.dart';
 /// 支持触底加载更多 + 下拉刷新。
 /// [notebookId] 当前选中的笔记本 id（null = 全部笔记）
 /// [getPageNotes] 由父组件提供的分页查询函数
+/// [onNoteTap] 点击笔记名片时的回调
 class NoteList extends StatefulWidget {
   const NoteList({
     super.key,
     required this.notebookId,
     required this.getPageNotes,
+    this.onNoteTap,
   });
 
   final int? notebookId;
@@ -21,6 +23,7 @@ class NoteList extends StatefulWidget {
     int? notebookId,
   )
   getPageNotes;
+  final void Function(Note note)? onNoteTap;
 
   @override
   State<NoteList> createState() => _NoteListState();
@@ -190,7 +193,10 @@ class _NoteListState extends State<NoteList> {
   Widget _buildNoteCard(Note note) {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
+      child: InkWell(
+        onTap: widget.onNoteTap != null ? () => widget.onNoteTap!(note) : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,6 +271,7 @@ class _NoteListState extends State<NoteList> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

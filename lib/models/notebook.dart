@@ -3,16 +3,16 @@ import 'page_result.dart';
 
 /// 笔记本模型 — 与服务端 Notebook.java 对齐
 class Notebook {
-  final int id;
+  final int? id;
   final String name;
   final String? description;
   final String? color;
   final String? avatar;
   final int sortOrder;
   final int totalNoteCnt;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-  final int userId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final int? userId;
 
   const Notebook({
     required this.id,
@@ -29,16 +29,20 @@ class Notebook {
 
   factory Notebook.fromJson(Map<String, dynamic> json) {
     return Notebook(
-      id: json['id'] as int,
+      id: json['id'] as int?,
       name: json['name'] as String? ?? '',
       description: json['description'] as String?,
       color: json['color'] as String?,
       avatar: json['avatar'] as String?,
       sortOrder: json['sortOrder'] as int? ?? 0,
       totalNoteCnt: json['totalNoteCnt'] as int? ?? 0,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
-      userId: json['userId'] as int,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : null,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
+          : null,
+      userId: json['userId'] as int?,
     );
   }
 
@@ -51,8 +55,8 @@ class Notebook {
       'avatar': avatar,
       'sortOrder': sortOrder,
       'totalNoteCnt': totalNoteCnt,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt.toIso8601String(),
+      'createdAt': createdAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
       'userId': userId,
     };
   }

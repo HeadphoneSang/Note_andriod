@@ -1,14 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
+import 'package:note_for_android/core/store/user_store.dart';
 import 'package:note_for_android/models/node_change_event.dart';
 import 'package:note_for_android/models/note.dart';
 import 'package:note_for_android/models/note_block.dart';
 import 'package:note_for_android/models/note_diff.dart';
 import 'package:note_for_android/models/note_diff_result.dart';
+import 'package:note_for_android/models/notebook.dart';
 import 'package:note_for_android/utils/toast_util.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 /// 待同步的块变更
@@ -481,6 +485,30 @@ class IncrementalSaveService {
       }
       _isFlushing = false;
       isFlushingNotifier.value = false;
+    }
+  }
+
+  Future<List<Notebook>> tryLoadAllNotebooks() async {
+    try {
+      final response = await HttpClient.instance.get(
+        "/notebook/getNotebookList",
+      );
+      if (response.code == 200 && response.data != null) {
+        List<dynamic> jsonList = response.data;
+        List<Notebook> bookAbInfos = jsonList
+            .map((json) => Notebook.fromJson(json))
+            .toList();
+        return bookAbInfos;
+      } else {
+        ToastUtil.warning(
+          provideContext(),
+          title: "初始化警告",
+          description: response.message,
+        );
+        return [];
+      }
+    } catch (e) {
+      rethrow;
     }
   }
 
