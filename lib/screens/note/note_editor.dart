@@ -30,7 +30,8 @@ class _NoteEditorState extends State<NoteEditor> {
   bool _isRefreshing = false;
   StreamSubscription? _txSub;
   Selection? _lastSelection;
-  late List<Notebook> _notebookAbList;
+  late List<Notebook>? _notebookAbList = [];
+  int? _selectedNotebookId;
 
   @override
   void initState() {
@@ -44,6 +45,9 @@ class _NoteEditorState extends State<NoteEditor> {
       provideContext: () => context,
       notebookId: widget.notebookId,
     );
+    _saveService.onFlushCompleted = () {
+      if (mounted) setState(() {});
+    };
 
     _txSub = _editorState.transactionStream.listen((event) {
       final (time, transaction, _) = event;
@@ -54,6 +58,7 @@ class _NoteEditorState extends State<NoteEditor> {
     });
 
     _editorState.selectionNotifier.addListener(_onSelectionChanged);
+    _selectedNotebookId = widget.notebookId;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       showDialog(
@@ -77,7 +82,10 @@ class _NoteEditorState extends State<NoteEditor> {
             }
           })
           .whenComplete(() {
-            if (mounted) Navigator.of(context).pop();
+            if (mounted) {
+              Navigator.of(context).pop();
+              setState(() {});
+            }
           });
     });
   }
@@ -394,6 +402,114 @@ class _NoteEditorState extends State<NoteEditor> {
     );
   }
 
+  /// 显示笔记本选择弹窗
+  void _showNotebookSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 标题
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Row(
+                  children: [
+                    const Text(
+                      "选择笔记本",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              // 笔记本列表
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: _notebookAbList!.map((nb) {
+                    final selected = nb.id == _selectedNotebookId;
+                    return ListTile(
+                      leading: Icon(
+                        selected
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
+                        color: selected ? Theme.of(context).primaryColor : null,
+                      ),
+                      title: Text(nb.name),
+                      onTap: () {
+                        setState(() => _selectedNotebookId = nb.id);
+                        Navigator.pop(ctx);
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // 新建笔记本
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline),
+                title: const Text("新建笔记本"),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  // TODO: 打开新建笔记本界面
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSelectNotebookList() {
+    return GestureDetector(
+      onTap: _showNotebookSheet,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.folder_rounded, size: 14, color: Colors.grey.shade600),
+            const SizedBox(width: 4),
+            Text(
+              _notebookAbList!
+                      .where((n) => n.id == _selectedNotebookId)
+                      .firstOrNull
+                      ?.name ??
+                  "-",
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            const SizedBox(width: 2),
+            Icon(Icons.arrow_drop_down, size: 16, color: Colors.grey.shade500),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── 构建 ──
 
   @override
@@ -467,10 +583,7 @@ class _NoteEditorState extends State<NoteEditor> {
                             const SizedBox(width: 12),
                             _infoChip(Icons.text_fields, _wordCount.toString()),
                             const SizedBox(width: 12),
-                            _infoChip(
-                              Icons.folder_rounded,
-                              "笔记本:" + (widget.notebookId?.toString() ?? "-"),
-                            ),
+                            _buildSelectNotebookList(),
                           ],
                         ),
                       )
@@ -488,10 +601,9 @@ class _NoteEditorState extends State<NoteEditor> {
                             const SizedBox(width: 12),
                             _infoChip(Icons.text_fields, _wordCount.toString()),
                             const SizedBox(width: 12),
-                            _infoChip(
-                              Icons.folder_rounded,
-                              "笔记本:" + (widget.notebookId?.toString() ?? "-"),
-                            ),
+                            _notebookAbList != null
+                                ? _buildSelectNotebookList()
+                                : const SizedBox(width: 12),
                           ],
                         ),
                       ),
@@ -585,13 +697,9 @@ class _NoteEditorState extends State<NoteEditor> {
                   builder: (context, time, _) {
                     if (time == null) return SizedBox.shrink();
                     final formatted =
-                        time.hour.toString().padLeft(2, '0') +
-                        ':' +
-                        time.minute.toString().padLeft(2, '0') +
-                        ':' +
-                        time.second.toString().padLeft(2, '0');
+                        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
                     return Text(
-                      '最近一次保存: ' + formatted,
+                      '最近一次保存: $formatted',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade400,

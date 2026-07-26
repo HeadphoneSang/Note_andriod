@@ -70,6 +70,7 @@ class IncrementalSaveService {
   final TextEditingController titleCtrl;
   final int? Function() provideNotebookId;
   final BuildContext Function() provideContext;
+  void Function() onFlushCompleted = () {};
   final int? notebookId;
   Note? _currentNoteInfo; // 当前持有的Note的信息，包含了Note的版本号
 
@@ -467,8 +468,8 @@ class IncrementalSaveService {
       if (batch.isEmpty) return;
       final diff = _buildDiff(batch);
       // 将增量更新提交到后端服务
-      debugPrint('${diff.toJson()}');
-      debugPrint("$diff");
+      // debugPrint('${diff.toJson()}');
+      // debugPrint("$diff");
       flushSucceeded = await _tryUpdateNoteDiff(diff, batch);
     } finally {
       if (!flushSucceeded) {
@@ -485,6 +486,7 @@ class IncrementalSaveService {
       }
       _isFlushing = false;
       isFlushingNotifier.value = false;
+      onFlushCompleted();
     }
   }
 
