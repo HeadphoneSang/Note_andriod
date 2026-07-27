@@ -291,11 +291,8 @@ class _NotesTabState extends State<NotesTab>
         transitionDuration: const Duration(milliseconds: 350),
       ),
     );
-    if (result != null && mounted) {
-      debugPrint('[NotesTab] 新笔记已创建: ' + result.title);
-      setState(() => _noteListRefreshKey++);
-    }
     if (mounted) {
+      setState(() => _noteListRefreshKey++);
       await _loadNotebooks();
     }
   }

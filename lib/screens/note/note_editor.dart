@@ -665,6 +665,10 @@ class _NoteEditorState extends State<NoteEditor> {
       appBar: AppBar(
         title: const Text('新建笔记'),
         actions: [
+          // IconButton(
+          //   icon: const Icon(Icons.arrow_back_rounded),
+          //   onPressed: () => Navigator.pop(context),
+          // ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             onPressed: _isRefreshing ? null : _onRefresh,
