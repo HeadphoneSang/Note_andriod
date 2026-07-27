@@ -197,81 +197,85 @@ class _NoteListState extends State<NoteList> {
         onTap: widget.onNoteTap != null ? () => widget.onNoteTap!(note) : null,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 标题行（含标记星标）
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    note.title.isEmpty ? '无标题' : note.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                if (note.isMarked)
-                  const Icon(Icons.star_rounded, color: Colors.amber, size: 20),
-              ],
-            ),
-
-            // 摘要
-            if (note.summary != null && note.summary!.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                note.summary!,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-              ),
-            ],
-
-            // 标签
-            if (note.tags.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: note.tags.map((tag) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tag.color != null
-                          ? _parseColor(tag.color!).withValues(alpha: 0.15)
-                          : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 标题行（含标记星标）
+              Row(
+                children: [
+                  Expanded(
                     child: Text(
-                      tag.name,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: tag.color != null
-                            ? _parseColor(tag.color!)
-                            : Colors.grey.shade600,
+                      note.title.isEmpty ? '无标题' : note.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  );
-                }).toList(),
+                  ),
+                  if (note.isMarked)
+                    const Icon(
+                      Icons.star_rounded,
+                      color: Colors.amber,
+                      size: 20,
+                    ),
+                ],
+              ),
+
+              // 摘要
+              if (note.summary != null && note.summary!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  note.summary!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                ),
+              ],
+
+              // 标签
+              if (note.tags.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: note.tags.map((tag) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: tag.color != null
+                            ? _parseColor(tag.color!).withValues(alpha: 0.15)
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        tag.name,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: tag.color != null
+                              ? _parseColor(tag.color!)
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+
+              // 更新时间
+              const SizedBox(height: 8),
+              Text(
+                _formatTime(note.updatedAt),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
               ),
             ],
-
-            // 更新时间
-            const SizedBox(height: 8),
-            Text(
-              _formatTime(note.updatedAt),
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-            ),
-          ],
+          ),
         ),
-      ),
       ),
     );
   }

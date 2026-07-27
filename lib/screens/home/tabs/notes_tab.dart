@@ -31,6 +31,7 @@ class _NotesTabState extends State<NotesTab>
   late final Animation<Offset> _slideAnim;
   final _noteListPageSize = 5;
 
+  int _noteListRefreshKey = 0;
   // ──────────────────────────────────────────────
   //  笔记本数据
   // ──────────────────────────────────────────────
@@ -291,7 +292,11 @@ class _NotesTabState extends State<NotesTab>
       ),
     );
     if (result != null && mounted) {
-      debugPrint('[NotesTab] 新笔记已创建: ${result.title}');
+      debugPrint('[NotesTab] 新笔记已创建: ' + result.title);
+      setState(() => _noteListRefreshKey++);
+    }
+    if (mounted) {
+      await _loadNotebooks();
     }
   }
 
@@ -458,9 +463,9 @@ class _NotesTabState extends State<NotesTab>
     );
   }
 
-  /// 笔记列表区域
   Widget _buildBody() {
     return NoteList(
+      key: ValueKey(_noteListRefreshKey),
       notebookId: _selectedNotebookId,
       getPageNotes: _selectedNotebookId != null
           ? _getPageNotes
