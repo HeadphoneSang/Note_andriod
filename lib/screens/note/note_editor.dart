@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:note_for_android/core/store/user_store.dart';
 import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
+import 'package:provider/provider.dart';
 import 'package:note_for_android/models/note_block.dart';
 import 'package:note_for_android/models/notebook.dart';
 import 'package:note_for_android/screens/note/mixins/incremental_save.dart';
@@ -403,6 +405,24 @@ class _NoteEditorState extends State<NoteEditor> {
   }
 
   /// 显示笔记本选择弹窗
+
+  /// 重新加载笔记本列表
+  Future<void> _loadNotebooks() async {
+    try {
+      final abList = await _saveService.tryLoadAllNotebooks();
+      if (!mounted) return;
+      setState(() {
+        _notebookAbList =
+            [
+              Notebook.fromJson({"id": null, "name": "全部笔记"}),
+            ] +
+            abList;
+      });
+    } catch (e) {
+      debugPrint("加载笔记本列表失败: $e");
+    }
+  }
+
   void _showNotebookSheet() {
     showModalBottomSheet(
       context: context,
@@ -483,6 +503,13 @@ class _NoteEditorState extends State<NoteEditor> {
                           ),
                         );
                         if (confirm != true) return;
+                        // 显示加载中
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (_) =>
+                              const Center(child: CircularProgressIndicator()),
+                        );
                         try {
                           final response = await HttpClient.instance
                               .post<String>(
@@ -496,17 +523,20 @@ class _NoteEditorState extends State<NoteEditor> {
                             if (mounted) {
                               await _saveService.tryLoadNote();
                               if (mounted) {
-                                Navigator.pop(context);
                                 setState(() => _selectedNotebookId = nb.id);
                                 ToastUtil.success(context, title: "切换成功");
+                                Navigator.pop(context);
+                                Navigator.pop(context);
                               }
                             }
                           } else {
+                            if (mounted) Navigator.pop(context);
                             ToastUtil.error(
                               context,
                               title: "切换失败",
                               description: response.message,
                             );
+                            if (mounted) Navigator.pop(context);
                           }
                         } catch (e) {
                           ToastUtil.error(
@@ -525,9 +555,68 @@ class _NoteEditorState extends State<NoteEditor> {
               ListTile(
                 leading: const Icon(Icons.add_circle_outline),
                 title: const Text("新建笔记本"),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
-                  // TODO: 打开新建笔记本界面
+                  final nameCtrl = TextEditingController();
+                  final name = await showDialog<String>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text("新建笔记本"),
+                      content: TextField(
+                        controller: nameCtrl,
+                        autofocus: true,
+                        decoration: const InputDecoration(hintText: "请输入笔记本名称"),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text("取消"),
+                        ),
+                        TextButton(
+                          onPressed: () =>
+                              Navigator.pop(ctx, nameCtrl.text.trim()),
+                          child: const Text("确定"),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (name == null || name.isEmpty) return;
+                  try {
+                    final userId = context.read<UserStore>().user?.id;
+                    if (userId == null) {
+                      ToastUtil.error(context, title: "无法获取用户信息");
+                      return;
+                    }
+                    final response = await HttpClient.instance
+                        .post<Map<String, dynamic>>(
+                          "/notebook/add",
+                          data: {
+                            "name": name,
+                            "description": "",
+                            "userId": userId,
+                          },
+                        );
+                    if (response.code == 200) {
+                      final newNotebookId = response.data?["id"] as int?;
+                      ToastUtil.success(context, title: "创建成功");
+                      await _loadNotebooks();
+                      if (newNotebookId != null && mounted) {
+                        setState(() => _selectedNotebookId = newNotebookId);
+                      }
+                    } else {
+                      ToastUtil.error(
+                        context,
+                        title: "创建失败",
+                        description: response.message,
+                      );
+                    }
+                  } catch (e) {
+                    ToastUtil.error(
+                      context,
+                      title: "网络错误",
+                      description: "创建笔记本失败",
+                    );
+                  }
                 },
               ),
               const SizedBox(height: 8),
