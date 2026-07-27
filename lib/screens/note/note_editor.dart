@@ -454,9 +454,61 @@ class _NoteEditorState extends State<NoteEditor> {
                         color: selected ? Theme.of(context).primaryColor : null,
                       ),
                       title: Text(nb.name),
-                      onTap: () {
-                        setState(() => _selectedNotebookId = nb.id);
-                        Navigator.pop(ctx);
+                      onTap: () async {
+                        if (nb.id == _saveService.currentNoteInfo?.notebookId &&
+                            nb.id != null)
+                          return;
+                        if (nb.id == _saveService.currentNoteInfo?.notebookId)
+                          return;
+                        final noteId = _saveService.currentNoteInfo?.id;
+                        if (noteId == null) {
+                          ToastUtil.warning(context, title: "请先保存笔记");
+                          return;
+                        }
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("切换笔记本"),
+                            content: Text("是否切换到 ${nb.name}？"),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text("取消"),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text("确定"),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirm != true) return;
+                        try {
+                          final response = await HttpClient.instance
+                              .post<String>(
+                                "/note/editNotebook",
+                                queryParameters: {
+                                  "noteId": noteId,
+                                  "notebookId": nb.id,
+                                },
+                              );
+                          if (response.code == 200) {
+                            setState(() => _selectedNotebookId = nb.id);
+                            ToastUtil.success(context, title: "切换成功");
+                          } else {
+                            ToastUtil.error(
+                              context,
+                              title: "切换失败",
+                              description: response.message,
+                            );
+                          }
+                        } catch (e) {
+                          ToastUtil.error(
+                            context,
+                            title: "网络错误",
+                            description: "切换笔记本失败",
+                          );
+                        }
                       },
                     );
                   }).toList(),
