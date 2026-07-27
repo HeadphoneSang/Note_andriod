@@ -71,7 +71,7 @@ class _NoteEditorState extends State<NoteEditor> {
           .then((abList) {
             _notebookAbList =
                 [
-                  Notebook.fromJson({"id": null, "name": "全部笔记"}),
+                  Notebook.fromJson({"id": -1, "name": "全部笔记"}),
                 ] +
                 abList;
             debugPrint("$_notebookAbList");
@@ -493,8 +493,14 @@ class _NoteEditorState extends State<NoteEditor> {
                                 },
                               );
                           if (response.code == 200) {
-                            setState(() => _selectedNotebookId = nb.id);
-                            ToastUtil.success(context, title: "切换成功");
+                            if (mounted) {
+                              await _saveService.tryLoadNote();
+                              if (mounted) {
+                                Navigator.pop(context);
+                                setState(() => _selectedNotebookId = nb.id);
+                                ToastUtil.success(context, title: "切换成功");
+                              }
+                            }
                           } else {
                             ToastUtil.error(
                               context,
