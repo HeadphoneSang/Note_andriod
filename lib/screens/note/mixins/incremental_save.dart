@@ -544,6 +544,22 @@ class IncrementalSaveService {
           ], node);
         }
         await editorState.apply(transaction);
+
+        // 若服务端返回空内容，保底插入一个空段落，保证编辑器始终有可聚焦的块
+        if (editorState.document.root.children.isEmpty) {
+          final paragraphNode = Node(
+            type: ParagraphBlockKeys.type,
+            attributes: {
+              blockComponentDelta: [
+                {'insert': '\n'},
+              ],
+            },
+          );
+          final insertTx = Transaction(document: editorState.document);
+          insertTx.insertNode([0], paragraphNode);
+          await editorState.apply(insertTx);
+        }
+
         // 构建新的文档中的chunkId2NodeIdMap
         final Map<String, String> chunkId2NodeIdMap = {};
         for (var node in editorState.document.root.children) {
