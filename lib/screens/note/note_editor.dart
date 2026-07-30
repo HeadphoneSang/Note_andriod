@@ -3,12 +3,11 @@ import 'package:appflowy_editor/appflowy_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:note_for_android/core/store/user_store.dart';
-import 'package:note_for_android/core/editor/note_document_convert.dart';
 import 'package:note_for_android/core/network/http_client.dart';
 import 'package:provider/provider.dart';
-import 'package:note_for_android/models/note_block.dart';
 import 'package:note_for_android/models/notebook.dart';
 import 'package:note_for_android/screens/note/mixins/incremental_save.dart';
+import 'package:note_for_android/screens/note/mixins/tag_service.dart';
 import 'package:note_for_android/screens/note/widgets/table_toolbar_items.dart';
 import 'package:note_for_android/utils/toast_util.dart';
 
@@ -28,8 +27,11 @@ class _NoteEditorState extends State<NoteEditor> {
   late final _tableInsertItem = createTableInsertToolbarItem();
   late final _tableActionItem = createTableActionToolbarItem();
   late final IncrementalSaveService _saveService;
+  late final TagService _tagService;
   bool _isSaving = false;
   bool _isRefreshing = false;
+  bool _isLoadingNoteInfo = false;
+  bool _isSavingTag = false;
   StreamSubscription? _txSub;
   Selection? _lastSelection;
   late List<Notebook>? _notebookAbList = [];
@@ -48,6 +50,15 @@ class _NoteEditorState extends State<NoteEditor> {
       notebookId: widget.notebookId,
     );
     _saveService.onFlushCompleted = () {
+      if (mounted) setState(() {});
+    };
+
+    _tagService = TagService(
+      provideNotebookId: () => widget.notebookId,
+      provideContext: () => context,
+      noteIdProvider: () => _saveService.noteId,
+    );
+    _tagService.onFlushCompleted = () {
       if (mounted) setState(() {});
     };
 
@@ -96,6 +107,7 @@ class _NoteEditorState extends State<NoteEditor> {
   void dispose() {
     _editorState.selectionNotifier.removeListener(_onSelectionChanged);
     _saveService.cancelDebounce();
+    _tagService.cancelDebounce();
     _txSub?.cancel();
     _editorState.dispose();
     _titleCtrl.dispose();
@@ -225,11 +237,13 @@ class _NoteEditorState extends State<NoteEditor> {
       ToastUtil.warning(context, title: '请输入标题');
       return;
     }
-    if (!_saveService.haveTotalChange) {
+    if (!_saveService.haveTotalChange && !_tagService.hasPendingChanges) {
       ToastUtil.warning(context, title: '没有任何修改');
       return;
     }
     await _saveService.flush();
+    // 同时保存标签
+    await _tagService.flush();
 
     if (_saveService.noteId == null) {
       if (!mounted) return;
@@ -278,6 +292,7 @@ class _NoteEditorState extends State<NoteEditor> {
     // 先保存当前未提交的修改
     try {
       await _saveService.flush();
+      await _tagService.flush();
     } catch (_) {
       // 保存失败不影响刷新
     }
@@ -286,6 +301,10 @@ class _NoteEditorState extends State<NoteEditor> {
       if (!await _saveService.tryLoadNote()) return;
       // 加载最新的笔记块内容
       if (!await _saveService.tryLoadChunks()) return;
+      // 加载最新的标签
+      if (_saveService.noteId != null) {
+        await _tagService.tryLoadTags();
+      }
       if (mounted) {
         ToastUtil.success(
           context,
@@ -305,103 +324,194 @@ class _NoteEditorState extends State<NoteEditor> {
     }
   }
 
-  void _showNoteInfoSheet(BuildContext context) {
-    final summaryCtrl = TextEditingController(
-      text: _saveService.currentNoteInfo?.summary ?? "",
-    );
+  void _showNoteInfoSheet(BuildContext context) async {
+    if (_isLoadingNoteInfo) return;
+    _isLoadingNoteInfo = true;
+    _isSavingTag = false;
+    try {
+      final summaryCtrl = TextEditingController(
+        text: _saveService.currentNoteInfo?.summary ?? "",
+      );
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 16,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 标题
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    "笔记信息",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // 摘要
-              const Text(
-                "摘要",
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 4),
-              TextField(
-                controller: summaryCtrl,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: "添加摘要...",
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.all(8),
+      // 加载当前笔记的标签和用户的所有标签
+      await _tagService.tryLoadTags();
+      await _tagService.tryLoadAllUserTags();
+
+      if (!context.mounted) return;
+      _isLoadingNoteInfo = false;
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (context, setInnerState) {
+              final availableTags = _tagService.availableTags
+                  .where(
+                    (t) => !_tagService.currentTags.any((ct) => ct.id == t.id),
+                  )
+                  .toList();
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
                 ),
-              ),
-              const SizedBox(height: 16),
-              // 标签
-              const Text(
-                "标签",
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: [
-                  ...(_saveService.currentNoteInfo?.tags ?? []).map((tag) {
-                    return Chip(
-                      label: Text(
-                        tag.name,
-                        style: const TextStyle(fontSize: 12),
+                child: Stack(
+                  children: [
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 标题
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "笔记信息",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => Navigator.pop(ctx),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        // 摘要
+                        const Text(
+                          "摘要",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        TextField(
+                          controller: summaryCtrl,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            hintText: "添加摘要...",
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.all(8),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        // 标签
+                        const Text(
+                          "标签",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        // 已选标签
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            ..._tagService.currentTags.map((tag) {
+                              return Chip(
+                                label: Text(
+                                  tag.name,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                backgroundColor: tag.color != null
+                                    ? tag.toColor().withValues(alpha: 0.2)
+                                    : null,
+                                deleteIcon: const Icon(Icons.close, size: 16),
+                                onDeleted: () {
+                                  _tagService.removeTag(tag.id!);
+                                  setInnerState(() {});
+                                },
+                              );
+                            }),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // 可添加标签
+                        if (availableTags.isNotEmpty)
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              ...availableTags.map((tag) {
+                                return ActionChip(
+                                  label: Text(
+                                    tag.name,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  backgroundColor: tag.color != null
+                                      ? tag.toColor().withValues(alpha: 0.2)
+                                      : null,
+                                  onPressed: () {
+                                    if (tag.id != null) {
+                                      _tagService.addTag(tag.id!);
+                                    }
+                                    setInnerState(() {
+                                      print("刷新");
+                                    });
+                                  },
+                                );
+                              }),
+                            ],
+                          ),
+                        const SizedBox(height: 8),
+                        // 新增标签按钮 → 弹窗
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text(
+                            "新增标签",
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          onPressed: () => _showCreateTagDialog(setInnerState),
+                        ),
+                        const SizedBox(height: 16),
+                        // 保存按钮
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              _isSavingTag = true;
+                              setInnerState(() {});
+                              await _tagService.flush();
+                              if (ctx.mounted) {
+                                ToastUtil.success(ctx, title: '标签已保存');
+                                Navigator.pop(ctx);
+                                _isSavingTag = false;
+                              }
+                            },
+                            child: const Text("保存"),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_isSavingTag)
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black26,
+                          child: const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
                       ),
-                      deleteIcon: const Icon(Icons.close, size: 16),
-                      onDeleted: () {},
-                    );
-                  }),
-                  ActionChip(
-                    label: const Text("+ 添加标签", style: TextStyle(fontSize: 12)),
-                    onPressed: () {},
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              // 保存按钮
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    // TODO: 保存摘要和标签
-                    Navigator.pop(ctx);
-                  },
-                  child: const Text("保存"),
+                  ],
                 ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      _isLoadingNoteInfo = false;
+    }
   }
 
   /// 显示笔记本选择弹窗
@@ -420,6 +530,93 @@ class _NoteEditorState extends State<NoteEditor> {
       });
     } catch (e) {
       debugPrint("加载笔记本列表失败: $e");
+    }
+  }
+
+  static const _tagColors = [
+    Colors.red,
+    Colors.orange,
+    Colors.yellow,
+    Colors.green,
+    Colors.blue,
+    Colors.purple,
+    Colors.grey,
+  ];
+
+  Future<void> _showCreateTagDialog(StateSetter setInnerState) async {
+    final nameCtrl = TextEditingController();
+    Color selectedColor = _tagColors.first;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: const Text("新增标签"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: "输入标签名称",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                children: _tagColors
+                    .map(
+                      (c) => GestureDetector(
+                        onTap: () => setState(() => selectedColor = c),
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: c,
+                            shape: BoxShape.circle,
+                            border: selectedColor == c
+                                ? Border.all(color: Colors.black, width: 3)
+                                : null,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("取消"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final name = nameCtrl.text.trim();
+                if (name.isEmpty) {
+                  ScaffoldMessenger.of(
+                    ctx,
+                  ).showSnackBar(const SnackBar(content: Text("请输入标签名称")));
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: const Text("确认"),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == true) {
+      final name = nameCtrl.text.trim();
+      await _tagService.createAndAddTag(
+        name,
+        '#${(selectedColor.toARGB32() & 0x00FFFFFF).toRadixString(16).padLeft(6, '0')}',
+      );
+      setInnerState(() {});
     }
   }
 
@@ -860,6 +1057,13 @@ class _NoteEditorState extends State<NoteEditor> {
                 ),
               ),
             ),
+            if (_isLoadingNoteInfo)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black26,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
           ],
         ),
       ),
