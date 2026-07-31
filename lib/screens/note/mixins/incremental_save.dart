@@ -697,6 +697,56 @@ class IncrementalSaveService {
     }
   }
 
+  /// 更新笔记摘要，成功返回 true
+  Future<bool> updateSummary(String summary) async {
+    if (_currentNoteInfo == null || _currentNoteInfo!.id == null) return false;
+    if (_currentNoteInfo!.summary == summary) return true;
+    return await _tryUpdateSummary(summary);
+  }
+
+  Future<bool> _tryUpdateSummary(String summary) async {
+    try {
+      final response = await HttpClient.instance.post<Map<String, dynamic>>(
+        '/note/summary',
+        queryParameters: {
+          "noteId": _currentNoteInfo!.id,
+          "summary": summary,
+          "version": _currentNoteInfo!.version,
+        },
+      );
+      if (response.code == 200 && response.data != null) {
+        _currentNoteInfo = Note.fromJson(response.data!);
+        lastSavedTime.value = DateTime.now();
+        return true;
+      } else if (response.code == 409) {
+        ToastUtil.warning(
+          provideContext(),
+          title: "保存失败",
+          description: "有用户修改了内容，请刷新后重试!",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        return false;
+      } else {
+        ToastUtil.warning(
+          provideContext(),
+          title: "保存失败",
+          description: "网络错误：${response.message}",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        return false;
+      }
+    } catch (e) {
+      debugPrint('摘要保存失败: $e');
+      ToastUtil.error(
+        provideContext(),
+        title: '网络错误',
+        description: '摘要保存失败',
+        alignment: AlignmentGeometry.bottomRight,
+      );
+      return false;
+    }
+  }
+
   /// 从 batch 构建 NoteBlockDiff
   /// 新块（chunkId == null）在此时生成 UUID。
   NoteBlockDiff _buildDiff(Map<String, _PendingBlock> batch) {

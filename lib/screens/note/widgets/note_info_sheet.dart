@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:note_for_android/screens/note/mixins/incremental_save.dart';
 import 'package:note_for_android/screens/note/mixins/tag_service.dart';
 import 'package:note_for_android/screens/note/widgets/create_tag_dialog.dart';
 import 'package:note_for_android/utils/toast_util.dart';
@@ -7,6 +8,7 @@ import 'package:note_for_android/utils/toast_util.dart';
 Future<void> showNoteInfoSheet({
   required BuildContext context,
   required TagService tagService,
+  required IncrementalSaveService saveService,
   required String initialSummary,
 }) async {
   final summaryCtrl = TextEditingController(text: initialSummary);
@@ -152,9 +154,12 @@ Future<void> showNoteInfoSheet({
                         onPressed: () async {
                           isSaving = true;
                           setInnerState(() {});
+                          await saveService.updateSummary(
+                            summaryCtrl.text.trim(),
+                          );
                           await tagService.flush();
                           if (ctx.mounted) {
-                            ToastUtil.success(ctx, title: '标签已保存');
+                            ToastUtil.success(ctx, title: '保存成功');
                             Navigator.pop(ctx);
                           }
                         },

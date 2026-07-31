@@ -284,6 +284,7 @@ class _NoteEditorState extends State<NoteEditor> {
       await showNoteInfoSheet(
         context: context,
         tagService: _tagService,
+        saveService: _saveService,
         initialSummary: _saveService.currentNoteInfo?.summary ?? "",
       );
     } finally {

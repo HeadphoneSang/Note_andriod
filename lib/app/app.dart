@@ -27,7 +27,7 @@ class App extends StatelessWidget {
           supportedLocales: const [Locale('en', 'US'), Locale('zh', 'CN')],
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color.fromARGB(255, 230, 220, 199),
+              seedColor: const Color.fromARGB(255, 255, 115, 0),
             ),
           ),
           home: SafeArea(child: const _AppEntry()),

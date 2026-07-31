@@ -173,7 +173,7 @@ class _NotesTabState extends State<NotesTab>
     try {
       final params = <String, dynamic>{'page': pageNumber, 'size': pageSize};
       final res = await HttpClient.instance.get<Map<String, dynamic>>(
-        '/note/listAll',
+        '/note/notes',
         queryParameters: params,
         cancelToken: _pageNoteCancelToken,
       );
