@@ -43,6 +43,9 @@ class _NoteViewPageState extends State<NoteViewPage> {
   bool _isLoadingNoteInfo = false;
   bool _isDeleting = false;
   bool _allowPop = false;
+  /// 下滑隐藏标题/信息栏，只留编辑内容
+  bool _hideHeader = false;
+  double _lastScrollOffset = 0;
   StreamSubscription? _txSub;
   Selection? _lastSelection;
   late List<Notebook>? _notebookAbList = [];
@@ -141,9 +144,11 @@ class _NoteViewPageState extends State<NoteViewPage> {
       _lastSelection != null && !_lastSelection!.isCollapsed;
 
   void _copySelection() {
-    final text = _editorState.selectionService.currentSelectedNodes
-        .map((n) => n.delta?.toPlainText() ?? '')
-        .join('\n');
+    final selection = _editorState.selection;
+    if (selection == null || selection.isCollapsed) return;
+    // 用 getTextInSelection 从当前选区实时计算，不依赖 selectionService 的缓存
+    // （移动端 currentSelectedNodes 只在拖选时更新，全选/程序化选区会拿不到完整文本）
+    final text = _editorState.getTextInSelection(selection).join('\n');
     if (text.isNotEmpty) {
       Clipboard.setData(ClipboardData(text: text));
       ToastUtil.success(context, title: '已复制');
@@ -173,16 +178,32 @@ class _NoteViewPageState extends State<NoteViewPage> {
     final doc = _editorState.document;
     if (doc.root.children.isEmpty) return;
     final lastNode = doc.root.children.last;
-    _editorState.updateSelectionWithReason(
-      Selection(
-        start: Position(path: [0], offset: 0),
-        end: Position(
-          path: [doc.root.children.length - 1],
-          offset: lastNode.delta?.length ?? 0,
-        ),
+    final selection = Selection(
+      start: Position(path: [0], offset: 0),
+      end: Position(
+        path: [doc.root.children.length - 1],
+        offset: lastNode.delta?.length ?? 0,
       ),
-      reason: SelectionUpdateReason.selectAll,
     );
+    // 走 selectionService.updateSelection：让移动端手势服务刷新
+    // currentSelectedNodes 与选区高亮，复制才能拿到完整内容
+    _editorState.service.selectionService.updateSelection(selection);
+  }
+
+  // ── 下滑隐藏标题/信息栏 ──
+
+  bool _onEditorScroll(ScrollNotification notification) {
+    if (notification is! ScrollUpdateNotification) return false;
+    final offset = notification.metrics.pixels;
+    final delta = offset - _lastScrollOffset;
+    _lastScrollOffset = offset;
+
+    // 顶部附近始终显示；下滑隐藏，上滑显示
+    final shouldHide = offset > 24 && delta > 0;
+    if (_hideHeader != shouldHide) {
+      setState(() => _hideHeader = shouldHide);
+    }
+    return false;
   }
 
   // ── 保存 & 刷新 ──
@@ -412,58 +433,80 @@ class _NoteViewPageState extends State<NoteViewPage> {
             children: [
               Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: TextField(
-                      controller: _titleCtrl,
-                      decoration: const InputDecoration(
-                        hintText: '标题',
-                        hintStyle: TextStyle(
-                          color: Color.fromARGB(255, 145, 145, 145),
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                        isDense: true,
-                      ),
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    child: Row(
-                      children: [
-                        _infoChip(
-                          Icons.access_time_rounded,
-                          _formatDate(_saveService.currentNoteInfo?.createdAt),
-                        ),
-                        const SizedBox(width: 12),
-                        _infoChip(Icons.text_fields, _wordCount.toString()),
-                        const SizedBox(width: 12),
-                        if (_notebookAbList != null)
-                          SelectNotebookButton(
-                            allNotebooks: _notebookAbList!,
-                            selectedNotebookId: _selectedNotebookId,
-                            onTap: _openNotebookSheet,
+                  // 标题 + 信息栏 — 下滑自动隐藏，上滑恢复
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeInOut,
+                    alignment: Alignment.topCenter,
+                    child: _hideHeader
+                        ? const SizedBox.shrink()
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                                child: TextField(
+                                  controller: _titleCtrl,
+                                  decoration: const InputDecoration(
+                                    hintText: '标题',
+                                    hintStyle: TextStyle(
+                                      color: Color.fromARGB(255, 145, 145, 145),
+                                    ),
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.zero,
+                                    isDense: true,
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 4,
+                                ),
+                                child: Row(
+                                  children: [
+                                    _infoChip(
+                                      Icons.access_time_rounded,
+                                      _formatDate(
+                                        _saveService.currentNoteInfo?.createdAt,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _infoChip(
+                                      Icons.text_fields,
+                                      _wordCount.toString(),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    if (_notebookAbList != null)
+                                      SelectNotebookButton(
+                                        allNotebooks: _notebookAbList!,
+                                        selectedNotebookId:
+                                            _selectedNotebookId,
+                                        onTap: _openNotebookSheet,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                      ],
-                    ),
                   ),
                   Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 8,
-                      ),
-                      child: AppFlowyEditor(
-                        editorState: _editorState,
-                        editorStyle: const EditorStyle.mobile(
-                          padding: EdgeInsets.zero,
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: _onEditorScroll,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 8,
+                        ),
+                        child: AppFlowyEditor(
+                          editorState: _editorState,
+                          editorStyle: const EditorStyle.mobile(
+                            padding: EdgeInsets.zero,
+                          ),
                         ),
                       ),
                     ),
