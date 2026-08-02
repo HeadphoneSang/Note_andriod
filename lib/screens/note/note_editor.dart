@@ -6,6 +6,7 @@ import 'package:note_for_android/models/notebook.dart';
 import 'package:note_for_android/screens/note/mixins/incremental_save.dart';
 import 'package:note_for_android/screens/note/mixins/tag_service.dart';
 import 'package:note_for_android/screens/note/widgets/floating_toolbar.dart';
+import 'package:note_for_android/screens/note/widgets/keyboard_safe_toolbar.dart';
 import 'package:note_for_android/screens/note/widgets/note_info_sheet.dart';
 import 'package:note_for_android/screens/note/widgets/notebook_sheet.dart';
 import 'package:note_for_android/screens/note/widgets/save_status_overlay.dart';
@@ -308,9 +309,84 @@ class _NoteEditorState extends State<NoteEditor> {
 
   // ── Build ──
 
+  Widget get _toolbarWidget {
+    // V1 MobileToolbar 自带键盘占位（按钮行 + spacer），配合 Scaffold 的
+    // resizeToAvoidBottomInset: false 使用；KeyboardSafeToolbar 保证点击
+    // 工具栏不丢编辑器焦点（不收起）。
+    return KeyboardSafeToolbar(
+      child: MobileToolbar(
+        editorState: _editorState,
+        toolbarItems: [
+          textDecorationMobileToolbarItem,
+          headingMobileToolbarItem,
+          blocksMobileToolbarItem,
+          listMobileToolbarItem,
+          todoListMobileToolbarItem,
+          codeMobileToolbarItem,
+          quoteMobileToolbarItem,
+          dividerMobileToolbarItem,
+          linkMobileToolbarItem,
+          _tableInsertItem,
+          _tableActionItem,
+          buildTextAndBackgroundColorMobileToolbarItem(),
+        ],
+      ),
+    );
+  }
+
+  Widget get _metaBarWidget {
+    if (_saveService.noteId != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(
+          children: [
+            _infoChip(
+              Icons.access_time_rounded,
+              _formatDate(_saveService.currentNoteInfo?.createdAt),
+            ),
+            const SizedBox(width: 12),
+            _infoChip(Icons.text_fields, _wordCount.toString()),
+            const SizedBox(width: 12),
+            SelectNotebookButton(
+              allNotebooks: _notebookAbList!,
+              selectedNotebookId: _selectedNotebookId,
+              onTap: _openNotebookSheet,
+            ),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          _infoChip(
+            Icons.access_time_rounded,
+            _formatDate(DateTime.now()),
+          ),
+          const SizedBox(width: 12),
+          _infoChip(Icons.text_fields, _wordCount.toString()),
+          const SizedBox(width: 12),
+          if (_notebookAbList != null)
+            SelectNotebookButton(
+              allNotebooks: _notebookAbList!,
+              selectedNotebookId: _selectedNotebookId,
+              onTap: _openNotebookSheet,
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 工具栏按钮行高度 + 键盘高度，用于把保存状态浮层顶到工具栏上方
+    const double toolbarH = 52;
+    final double kbH = MediaQuery.of(context).viewInsets.bottom;
+
     return Scaffold(
+      // 关闭系统避让：让 V1 MobileToolbar 内部用 keyboardHeight 占位
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('新建笔记'),
         actions: [
@@ -360,95 +436,22 @@ class _NoteEditorState extends State<NoteEditor> {
                     ),
                   ),
                 ),
-                _saveService.noteId != null
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 4,
-                        ),
-                        child: Row(
-                          children: [
-                            _infoChip(
-                              Icons.access_time_rounded,
-                              _formatDate(
-                                _saveService.currentNoteInfo?.createdAt,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            _infoChip(Icons.text_fields, _wordCount.toString()),
-                            const SizedBox(width: 12),
-                            SelectNotebookButton(
-                              allNotebooks: _notebookAbList!,
-                              selectedNotebookId: _selectedNotebookId,
-                              onTap: _openNotebookSheet,
-                            ),
-                          ],
-                        ),
-                      )
-                    : Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 4,
-                        ),
-                        child: Row(
-                          children: [
-                            _infoChip(
-                              Icons.access_time_rounded,
-                              _formatDate(DateTime.now()),
-                            ),
-                            const SizedBox(width: 12),
-                            _infoChip(Icons.text_fields, _wordCount.toString()),
-                            const SizedBox(width: 12),
-                            _notebookAbList != null
-                                ? SelectNotebookButton(
-                                    allNotebooks: _notebookAbList!,
-                                    selectedNotebookId: _selectedNotebookId,
-                                    onTap: _openNotebookSheet,
-                                  )
-                                : const SizedBox(width: 12),
-                          ],
-                        ),
-                      ),
+                _metaBarWidget,
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 0),
-                    child: Column(
-                      children: [
-                        MobileToolbar(
-                          editorState: _editorState,
-                          toolbarItems: [
-                            textDecorationMobileToolbarItem,
-                            headingMobileToolbarItem,
-                            blocksMobileToolbarItem,
-                            listMobileToolbarItem,
-                            todoListMobileToolbarItem,
-                            codeMobileToolbarItem,
-                            quoteMobileToolbarItem,
-                            dividerMobileToolbarItem,
-                            linkMobileToolbarItem,
-                            _tableInsertItem,
-                            _tableActionItem,
-                            buildTextAndBackgroundColorMobileToolbarItem(),
-                          ],
-                        ),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 8,
-                            ),
-                            child: AppFlowyEditor(
-                              editorState: _editorState,
-                              editorStyle: const EditorStyle.mobile(
-                                padding: EdgeInsets.zero,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    child: AppFlowyEditor(
+                      editorState: _editorState,
+                      editorStyle: const EditorStyle.mobile(
+                        padding: EdgeInsets.zero,
+                      ),
                     ),
                   ),
                 ),
+                _toolbarWidget,
               ],
             ),
             if (_hasSelection)
@@ -459,9 +462,13 @@ class _NoteEditorState extends State<NoteEditor> {
                 onPaste: _pasteClipboard,
                 onSelectAll: _selectAll,
               ),
-            SaveStatusOverlay(
-              isFlushingNotifier: _saveService.isFlushingNotifier,
-              lastSavedTime: _saveService.lastSavedTime,
+            // 顶到工具栏上方（按钮行 52 + 键盘高度）
+            Padding(
+              padding: EdgeInsets.only(bottom: toolbarH + kbH),
+              child: SaveStatusOverlay(
+                isFlushingNotifier: _saveService.isFlushingNotifier,
+                lastSavedTime: _saveService.lastSavedTime,
+              ),
             ),
             if (_isLoadingNoteInfo)
               Positioned.fill(

@@ -80,7 +80,11 @@ class IncrementalSaveService {
     required this.provideNotebookId,
     required this.provideContext,
     required this.notebookId,
+    Note? existingNote,
   }) {
+    // 编辑已有笔记时，预设 noteId 与 Note 元信息（id/version/summary/isMarked 立即可用）
+    _noteId = existingNote?.id;
+    _currentNoteInfo = existingNote;
     titleCtrl.addListener(() {
       _isUpdateTitle = true;
       _debounce();
@@ -561,10 +565,14 @@ class IncrementalSaveService {
         }
 
         // 构建新的文档中的chunkId2NodeIdMap
+        // 跳过没有 chunkId 的节点（如空内容时的兜底段落），避免 null key 抛 TypeError
         final Map<String, String> chunkId2NodeIdMap = {};
         for (var node in editorState.document.root.children) {
-          chunkId2NodeIdMap[node.attributes[NoteDocumentConvert.attrBlockId]] =
-              node.id;
+          final chunkId =
+              node.attributes[NoteDocumentConvert.attrBlockId] as String?;
+          if (chunkId != null) {
+            chunkId2NodeIdMap[chunkId] = node.id;
+          }
         }
         // 清空_nodeMeta，根据获得的blocks重新构建新的_nodeMeta
         _resetNodeMeta(blocks, chunkId2NodeIdMap);
@@ -741,6 +749,102 @@ class IncrementalSaveService {
         provideContext(),
         title: '网络错误',
         description: '摘要保存失败',
+        alignment: AlignmentGeometry.bottomRight,
+      );
+      return false;
+    }
+  }
+
+  /// 当前笔记是否已收藏
+  bool get isMarked => _currentNoteInfo?.isMarked ?? false;
+
+  /// 切换收藏状态，成功返回 true
+  Future<bool> updateIsMarked(bool isMarked) async {
+    if (_currentNoteInfo == null || _currentNoteInfo!.id == null) return false;
+    if (_currentNoteInfo!.isMarked == isMarked) return true;
+    return await _tryUpdateIsMarked(isMarked);
+  }
+
+  Future<bool> _tryUpdateIsMarked(bool isMarked) async {
+    try {
+      final response = await HttpClient.instance.post<Map<String, dynamic>>(
+        '/note/mark',
+        queryParameters: {
+          "noteId": _currentNoteInfo!.id,
+          "isMarked": isMarked,
+          "version": _currentNoteInfo!.version,
+        },
+      );
+      if (response.code == 200 && response.data != null) {
+        _currentNoteInfo = Note.fromJson(response.data!);
+        return true;
+      } else if (response.code == 409) {
+        ToastUtil.warning(
+          provideContext(),
+          title: "保存失败",
+          description: "有用户修改了内容，请刷新后重试!",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        return false;
+      } else {
+        ToastUtil.warning(
+          provideContext(),
+          title: "保存失败",
+          description: "网络错误：${response.message}",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        return false;
+      }
+    } catch (e) {
+      debugPrint('收藏状态保存失败: $e');
+      ToastUtil.error(
+        provideContext(),
+        title: '网络错误',
+        description: '收藏状态保存失败',
+        alignment: AlignmentGeometry.bottomRight,
+      );
+      return false;
+    }
+  }
+
+  /// 删除当前笔记（软删除），成功返回 true
+  Future<bool> deleteNote() async {
+    if (_currentNoteInfo == null || _currentNoteInfo!.id == null) return false;
+    // 删除前取消所有未完成的保存，避免与删除并发
+    cancelAll();
+    try {
+      final response = await HttpClient.instance.post<String>(
+        '/note/delete',
+        queryParameters: {
+          "noteId": _currentNoteInfo!.id,
+          "version": _currentNoteInfo!.version,
+        },
+      );
+      if (response.code == 200) {
+        return true;
+      } else if (response.code == 409) {
+        ToastUtil.warning(
+          provideContext(),
+          title: "保存失败",
+          description: "有用户修改了内容，请刷新后重试!",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        return false;
+      } else {
+        ToastUtil.warning(
+          provideContext(),
+          title: "删除失败",
+          description: "网络错误：${response.message}",
+          alignment: AlignmentGeometry.bottomRight,
+        );
+        return false;
+      }
+    } catch (e) {
+      debugPrint('删除笔记失败: $e');
+      ToastUtil.error(
+        provideContext(),
+        title: '网络错误',
+        description: '删除笔记失败',
         alignment: AlignmentGeometry.bottomRight,
       );
       return false;

@@ -4,6 +4,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:note_for_android/models/note.dart';
 import 'package:note_for_android/models/page_result.dart';
 import 'package:note_for_android/screens/note/note_editor.dart';
+import 'package:note_for_android/screens/note/note_view_page.dart';
 import '../../../core/network/http_client.dart';
 import 'widgets/notebook_sidebar.dart';
 import 'widgets/note_list.dart';
@@ -467,7 +468,38 @@ class _NotesTabState extends State<NotesTab>
       getPageNotes: _selectedNotebookId != null
           ? _getPageNotes
           : _getPageNotesByUserId,
-      onNoteTap: (note) => {debugPrint("点击了${note.title}")},
+      onNoteTap: _openNoteView,
     );
+  }
+
+  /// 点击笔记卡片 → 打开查看编辑页（复用新建页的 slide-up 转场）
+  Future<void> _openNoteView(Note note) async {
+    await Navigator.push<bool>(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, _, _) => NoteViewPage(
+          note: note,
+          notebookId: _selectedNotebookId,
+        ),
+        transitionsBuilder: (_, animation, _, child) {
+          final curve = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(curve),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 350),
+      ),
+    );
+    if (!mounted) return;
+    // 返回后强制刷新列表（可能修改了标题/内容/星标/笔记本，或已删除）
+    setState(() => _noteListRefreshKey++);
+    await _loadNotebooks();
   }
 }
