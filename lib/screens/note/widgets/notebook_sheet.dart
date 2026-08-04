@@ -66,6 +66,10 @@ Future<void> showNotebookSheet({
                           nb.id != null) return;
                       if (nb.id == saveService.currentNoteInfo?.notebookId)
                         return;
+                      if (nb.id == null || nb.id == -1) {
+                        ToastUtil.warning(context, title: "请选择有效笔记本");
+                        return;
+                      }
                       final noteId = saveService.currentNoteInfo?.id;
                       if (noteId == null) {
                         ToastUtil.warning(context, title: "请先保存笔记");

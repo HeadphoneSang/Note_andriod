@@ -78,70 +78,99 @@ Future<void> showNoteInfoSheet({
                     ),
                     const SizedBox(height: 16),
                     const Text(
-                      "标签",
+                      "已选标签",
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        ...tagService.currentTags.map((tag) {
-                          return Chip(
-                            label: Text(
-                              tag.name,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            backgroundColor: tag.color != null
-                                ? tag.toColor().withValues(alpha: 0.2)
-                                : null,
-                            deleteIcon: const Icon(Icons.close, size: 16),
-                            onDeleted: () {
-                              tagService.removeTag(tag.id!);
-                              setInnerState(() {});
-                            },
-                          );
-                        }),
-                      ],
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(
+                        maxHeight: 150,
+                        // minHeight: 50, // 也可以顺便设置最小高度
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.vertical,
+                        physics: const BouncingScrollPhysics(),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            ...tagService.currentTags.map((tag) {
+                              return Padding(
+                                padding: const EdgeInsets.only(left: 4),
+                                child: Chip(
+                                  label: Text(
+                                    tag.name,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  backgroundColor: tag.color != null
+                                      ? tag.toColor().withValues(alpha: 0.2)
+                                      : null,
+                                  onDeleted: () {
+                                    if (tag.id != null) {
+                                      tagService.removeTag(tag.id!);
+                                    }
+                                    setInnerState(() {});
+                                  },
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "待选标签",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     if (availableTags.isNotEmpty)
                       Container(
                         width: double.infinity,
-                        height: 100,
+                        constraints: const BoxConstraints(
+                          maxHeight: 150,
+                          // minHeight: 50, // 也可以顺便设置最小高度
+                        ),
                         decoration: BoxDecoration(
                           border: Border.all(color: Colors.grey.shade300),
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: GridView.builder(
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 50,
-                                mainAxisSpacing: 1,
-                                crossAxisSpacing: 1,
-                              ),
-                          itemBuilder: (ctx, index) {
-                            final tag = availableTags[index];
-                            return ActionChip(
-                              label: Text(
-                                tag.name,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              backgroundColor: tag.color != null
-                                  ? tag.toColor().withValues(alpha: 0.2)
-                                  : null,
-                              onPressed: () {
-                                if (tag.id != null) {
-                                  tagService.addTag(tag.id!);
-                                }
-                                setInnerState(() {});
-                              },
-                            );
-                          },
-                          itemCount: availableTags.length,
+                        child: SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              ...availableTags.map((tag) {
+                                return ActionChip(
+                                  label: Text(
+                                    tag.name,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  backgroundColor: tag.color != null
+                                      ? tag.toColor().withValues(alpha: 0.2)
+                                      : null,
+                                  onPressed: () {
+                                    if (tag.id != null) {
+                                      tagService.addTag(tag.id!);
+                                    }
+                                    setInnerState(() {});
+                                  },
+                                );
+                              }),
+                            ],
+                          ),
                         ),
                       ),
                     const SizedBox(height: 8),
