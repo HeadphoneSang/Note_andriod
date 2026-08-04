@@ -91,10 +91,7 @@ Future<void> showNoteInfoSheet({
                         maxHeight: 150,
                         // minHeight: 50, // 也可以顺便设置最小高度
                       ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
+                      padding: const EdgeInsets.all(4),
                       child: SingleChildScrollView(
                         scrollDirection: Axis.vertical,
                         physics: const BouncingScrollPhysics(),
@@ -138,13 +135,10 @@ Future<void> showNoteInfoSheet({
                     if (availableTags.isNotEmpty)
                       Container(
                         width: double.infinity,
+                        padding: const EdgeInsets.all(4),
                         constraints: const BoxConstraints(
                           maxHeight: 150,
                           // minHeight: 50, // 也可以顺便设置最小高度
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(4),
                         ),
                         child: SingleChildScrollView(
                           physics: const BouncingScrollPhysics(),

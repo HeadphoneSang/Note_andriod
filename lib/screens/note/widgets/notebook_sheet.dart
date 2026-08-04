@@ -44,99 +44,106 @@ Future<void> showNotebookSheet({
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 12),
               padding: const EdgeInsets.symmetric(vertical: 4),
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.35,
+              ),
               decoration: BoxDecoration(
                 color: Colors.grey.shade50,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: allNotebooks.map((nb) {
-                  final selected = nb.id == selectedNotebookId;
-                  return ListTile(
-                    leading: Icon(
-                      selected
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_off,
-                      color:
-                          selected ? Theme.of(context).primaryColor : null,
-                    ),
-                    title: Text(nb.name),
-                    onTap: () async {
-                      if (nb.id == saveService.currentNoteInfo?.notebookId &&
-                          nb.id != null) return;
-                      if (nb.id == saveService.currentNoteInfo?.notebookId)
-                        return;
-                      if (nb.id == null || nb.id == -1) {
-                        ToastUtil.warning(context, title: "请选择有效笔记本");
-                        return;
-                      }
-                      final noteId = saveService.currentNoteInfo?.id;
-                      if (noteId == null) {
-                        ToastUtil.warning(context, title: "请先保存笔记");
-                        return;
-                      }
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text("切换笔记本"),
-                          content: Text("是否切换到 ${nb.name}？"),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: const Text("取消"),
-                            ),
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, true),
-                              child: const Text("确定"),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (confirm != true) return;
-                      showDialog(
-                        context: context,
-                        barrierDismissible: false,
-                        builder: (_) =>
-                            const Center(child: CircularProgressIndicator()),
-                      );
-                      try {
-                        final response = await HttpClient.instance
-                            .post<String>(
-                              "/note/editNotebook",
-                              queryParameters: {
-                                "noteId": noteId,
-                                "notebookId": nb.id,
-                              },
-                            );
-                        if (response.code == 200) {
-                          if (context.mounted) {
-                            await saveService.tryLoadNote();
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: allNotebooks.map((nb) {
+                    final selected = nb.id == selectedNotebookId;
+                    return ListTile(
+                      leading: Icon(
+                        selected
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
+                        color: selected ? Theme.of(context).primaryColor : null,
+                      ),
+                      title: Text(nb.name),
+                      onTap: () async {
+                        if (nb.id == saveService.currentNoteInfo?.notebookId &&
+                            nb.id != null)
+                          return;
+                        if (nb.id == saveService.currentNoteInfo?.notebookId)
+                          return;
+                        if (nb.id == null || nb.id == -1) {
+                          ToastUtil.warning(context, title: "请选择有效笔记本");
+                          return;
+                        }
+                        final noteId = saveService.currentNoteInfo?.id;
+                        if (noteId == null) {
+                          ToastUtil.warning(context, title: "请先保存笔记");
+                          return;
+                        }
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text("切换笔记本"),
+                            content: Text("是否切换到 ${nb.name}？"),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text("取消"),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text("确定"),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirm != true) return;
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (_) =>
+                              const Center(child: CircularProgressIndicator()),
+                        );
+                        try {
+                          final response = await HttpClient.instance
+                              .post<String>(
+                                "/note/editNotebook",
+                                queryParameters: {
+                                  "noteId": noteId,
+                                  "notebookId": nb.id,
+                                },
+                              );
+                          if (response.code == 200) {
                             if (context.mounted) {
-                              onSelectedNotebookChanged(nb.id);
-                              ToastUtil.success(context, title: "切换成功");
-                              Navigator.pop(context);
-                              Navigator.pop(context);
+                              await saveService.tryLoadNote();
+                              if (context.mounted) {
+                                onSelectedNotebookChanged(nb.id);
+                                ToastUtil.success(context, title: "切换成功");
+                                Navigator.pop(context);
+                                Navigator.pop(context);
+                              }
                             }
+                          } else {
+                            if (context.mounted) Navigator.pop(context);
+                            ToastUtil.error(
+                              context,
+                              title: "切换失败",
+                              description: response.message,
+                            );
+                            if (context.mounted) Navigator.pop(context);
                           }
-                        } else {
-                          if (context.mounted) Navigator.pop(context);
+                        } catch (e) {
                           ToastUtil.error(
                             context,
-                            title: "切换失败",
-                            description: response.message,
+                            title: "网络错误",
+                            description: "切换笔记本失败",
                           );
-                          if (context.mounted) Navigator.pop(context);
                         }
-                      } catch (e) {
-                        ToastUtil.error(
-                          context,
-                          title: "网络错误",
-                          description: "切换笔记本失败",
-                        );
-                      }
-                    },
-                  );
-                }).toList(),
+                      },
+                    );
+                  }).toList(),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -161,7 +168,8 @@ Future<void> showNotebookSheet({
                         child: const Text("取消"),
                       ),
                       TextButton(
-                        onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()),
+                        onPressed: () =>
+                            Navigator.pop(ctx, nameCtrl.text.trim()),
                         child: const Text("确定"),
                       ),
                     ],
