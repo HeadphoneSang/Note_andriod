@@ -43,6 +43,7 @@ class _NoteViewPageState extends State<NoteViewPage> {
   bool _isLoadingNoteInfo = false;
   bool _isDeleting = false;
   bool _allowPop = false;
+
   /// 下滑隐藏标题/信息栏，只留编辑内容
   bool _hideHeader = false;
   double _lastScrollOffset = 0;
@@ -91,7 +92,35 @@ class _NoteViewPageState extends State<NoteViewPage> {
     _editorState.selectionNotifier.addListener(_onSelectionChanged);
     _selectedNotebookId = widget.note.notebookId ?? widget.notebookId;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initPage());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _overrideTapInterceptor();
+      _initPage();
+    });
+  }
+
+  /// 覆盖编辑器默认点击处理 + 缩小边缘自动滚动区域
+  ///
+  /// AppFlowy 默认在点击正文时调用 `textInputService.close()` 再重连，导致每次点击
+  /// 输入法都闪烁一下、屏幕跟着跳动。这里换成只移动光标、不关闭输入法。
+  ///
+  /// 另外 AppFlowy 的 `ScrollServiceWidget` 在每次选区变化时调用
+  /// `startAutoScroll(endTouchPoint, edgeOffset: autoScrollEdgeOffset)`，
+  /// 默认 `autoScrollEdgeOffset = 220`——光标离边 220px 就触发自动滚动，
+  /// 对手机来说过于灵敏，点任意位置屏幕都跟着动。这里把它缩到 5，
+  /// 只有光标真正在视口最边缘那一带才会轻微滚动，保证能看到那一行。
+  void _overrideTapInterceptor() {
+    try {
+      _editorState.service.selectionService.unregisterGestureInterceptor(
+        'keyboard',
+      );
+      _editorState.service.selectionService.registerGestureInterceptor(
+        SelectionGestureInterceptor(key: 'keyboard', canTap: (details) => true),
+      );
+      // 缩小边缘自动滚动区域：从默认 220 → 5
+      _editorState.autoScrollEdgeOffset = 2;
+    } catch (e) {
+      debugPrint('覆盖点击拦截器失败: $e');
+    }
   }
 
   @override
@@ -198,10 +227,20 @@ class _NoteViewPageState extends State<NoteViewPage> {
     final delta = offset - _lastScrollOffset;
     _lastScrollOffset = offset;
 
-    // 顶部附近始终显示；下滑隐藏，上滑显示
-    final shouldHide = offset > 24 && delta > 0;
-    if (_hideHeader != shouldHide) {
-      setState(() => _hideHeader = shouldHide);
+    // 下滑隐藏：只在真实手指拖动时触发
+    // （程序化滚动/键盘弹出 dragDetails == null 时不隐藏）
+    if (notification.dragDetails != null) {
+      final shouldHide = offset > 24 && delta > 0;
+      if (shouldHide && !_hideHeader) {
+        setState(() => _hideHeader = true);
+      }
+    }
+
+    // 滑到顶部（offset <= 4）时显示标题栏，无论手指是否还在屏幕上
+    // 这样快速回弹也能触发显示
+    final shouldShow = offset <= 4;
+    if (shouldShow && _hideHeader) {
+      setState(() => _hideHeader = false);
     }
     return false;
   }
@@ -444,7 +483,12 @@ class _NoteViewPageState extends State<NoteViewPage> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Padding(
-                                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  16,
+                                  16,
+                                  0,
+                                ),
                                 child: TextField(
                                   controller: _titleCtrl,
                                   decoration: const InputDecoration(
@@ -484,8 +528,7 @@ class _NoteViewPageState extends State<NoteViewPage> {
                                     if (_notebookAbList != null)
                                       SelectNotebookButton(
                                         allNotebooks: _notebookAbList!,
-                                        selectedNotebookId:
-                                            _selectedNotebookId,
+                                        selectedNotebookId: _selectedNotebookId,
                                         onTap: _openNotebookSheet,
                                       ),
                                   ],

@@ -109,11 +109,22 @@ Future<void> showNoteInfoSheet({
                     ),
                     const SizedBox(height: 8),
                     if (availableTags.isNotEmpty)
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          ...availableTags.map((tag) {
+                      Container(
+                        width: double.infinity,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: GridView.builder(
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 50,
+                                mainAxisSpacing: 1,
+                                crossAxisSpacing: 1,
+                              ),
+                          itemBuilder: (ctx, index) {
+                            final tag = availableTags[index];
                             return ActionChip(
                               label: Text(
                                 tag.name,
@@ -129,8 +140,9 @@ Future<void> showNoteInfoSheet({
                                 setInnerState(() {});
                               },
                             );
-                          }),
-                        ],
+                          },
+                          itemCount: availableTags.length,
+                        ),
                       ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
