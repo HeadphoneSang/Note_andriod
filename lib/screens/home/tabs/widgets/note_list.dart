@@ -36,7 +36,7 @@ class _NoteListState extends State<NoteList> {
   bool _loadingMore = false;
   bool _hasMore = true;
   int _currentPage = 1;
-  static const _pageSize = 20;
+  static const _pageSize = 5;
 
   @override
   void initState() {
@@ -82,7 +82,7 @@ class _NoteListState extends State<NoteList> {
           ..clear()
           ..addAll(page.records);
         _currentPage = 1;
-        _hasMore = page.records.length >= _pageSize;
+        _hasMore = _notes.length < page.total;
         _loading = false;
       });
     } catch (e) {

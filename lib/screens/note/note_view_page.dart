@@ -106,8 +106,8 @@ class _NoteViewPageState extends State<NoteViewPage> {
   /// 另外 AppFlowy 的 `ScrollServiceWidget` 在每次选区变化时调用
   /// `startAutoScroll(endTouchPoint, edgeOffset: autoScrollEdgeOffset)`，
   /// 默认 `autoScrollEdgeOffset = 220`——光标离边 220px 就触发自动滚动，
-  /// 对手机来说过于灵敏，点任意位置屏幕都跟着动。这里把它缩到 5，
-  /// 只有光标真正在视口最边缘那一带才会轻微滚动，保证能看到那一行。
+  /// 对手机来说过于灵敏，点任意位置屏幕都跟着动。这里把它缩到 50，
+  /// 只有手指真正拖到边缘附近才会触发自动滚动，保证选区和编辑体验稳定。
   void _overrideTapInterceptor() {
     try {
       _editorState.service.selectionService.unregisterGestureInterceptor(
@@ -116,8 +116,8 @@ class _NoteViewPageState extends State<NoteViewPage> {
       _editorState.service.selectionService.registerGestureInterceptor(
         SelectionGestureInterceptor(key: 'keyboard', canTap: (details) => true),
       );
-      // 缩小边缘自动滚动区域：从默认 220 → 5
-      _editorState.autoScrollEdgeOffset = 2;
+      // 缩小边缘自动滚动区域：从默认 220 → 50
+      _editorState.autoScrollEdgeOffset = 50;
     } catch (e) {
       debugPrint('覆盖点击拦截器失败: $e');
     }
