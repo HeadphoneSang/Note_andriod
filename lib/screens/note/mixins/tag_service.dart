@@ -109,6 +109,26 @@ class TagService {
     }
   }
 
+  /// 永久删除标签（从服务器删除，不从笔记取消关联）
+  Future<bool> deleteTag(int tagId) async {
+    try {
+      final response = await HttpClient.instance.post<String>(
+        '/tag/delete',
+        queryParameters: {'tagId': tagId},
+      );
+      if (response.code == 200) {
+        _availableTags = _availableTags.where((t) => t.id != tagId).toList();
+        // 如果当前笔记也关联了该标签，从当前标签列表移除
+        _currentTags = _currentTags.where((t) => t.id != tagId).toList();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('删除标签失败: $e');
+      return false;
+    }
+  }
+
   /// 等待当前刷新完成
   Future<void> flush() async {
     _tagDebounceTimer?.cancel();

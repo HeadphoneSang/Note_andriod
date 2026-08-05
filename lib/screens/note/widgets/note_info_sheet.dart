@@ -23,6 +23,7 @@ Future<void> showNoteInfoSheet({
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
     builder: (ctx) {
+      var deleteMode = false;
       return StatefulBuilder(
         builder: (context, setInnerState) {
           final availableTags = tagService.availableTags
@@ -124,12 +125,30 @@ Future<void> showNoteInfoSheet({
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      "待选标签",
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    Row(
+                      children: [
+                        const Text(
+                          "待选标签",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: Icon(
+                            deleteMode ? Icons.check : Icons.settings_rounded,
+                            size: 18,
+                          ),
+                          onPressed: () {
+                            setInnerState(() {
+                              deleteMode = !deleteMode;
+                            });
+                          },
+                          visualDensity: VisualDensity.compact,
+                          tooltip: deleteMode ? "完成" : "管理标签",
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     if (availableTags.isNotEmpty)
@@ -147,6 +166,74 @@ Future<void> showNoteInfoSheet({
                             runSpacing: 4,
                             children: [
                               ...availableTags.map((tag) {
+                                if (deleteMode) {
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        Chip(
+                                          label: Text(
+                                            tag.name,
+                                            style: const TextStyle(fontSize: 12),
+                                          ),
+                                          backgroundColor: tag.color != null
+                                              ? tag.toColor().withValues(alpha: 0.2)
+                                              : null,
+                                        ),
+                                        Positioned(
+                                          right: -6,
+                                          top: -6,
+                                          child: GestureDetector(
+                                            onTap: () async {
+                                              final confirm = await showDialog<bool>(
+                                                context: context,
+                                                builder: (ctx) => AlertDialog(
+                                                  title: const Text("删除标签"),
+                                                  content: Text("确定删除标签「${tag.name}」吗？\n该操作不可恢复。"),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(ctx, false),
+                                                      child: const Text("取消"),
+                                                    ),
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(ctx, true),
+                                                      style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                                      child: const Text("删除"),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                              if (confirm == true && tag.id != null) {
+                                                final ok = await tagService.deleteTag(tag.id!);
+                                                if (context.mounted) {
+                                                  if (ok) {
+                                                    ToastUtil.success(context, title: "删除成功");
+                                                  } else {
+                                                    ToastUtil.error(context, title: "删除失败");
+                                                  }
+                                                  setInnerState(() {});
+                                                }
+                                              }
+                                            },
+                                            child: Container(
+                                              padding: const EdgeInsets.all(2),
+                                              decoration: const BoxDecoration(
+                                                color: Colors.red,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(
+                                                Icons.close,
+                                                size: 12,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }
                                 return ActionChip(
                                   label: Text(
                                     tag.name,
