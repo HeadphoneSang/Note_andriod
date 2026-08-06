@@ -142,6 +142,7 @@ class _NoteViewPageState extends State<NoteViewPage> {
     setState(() => _isLoading = true);
     try {
       // 关键步骤：把服务端 blocks 灌入编辑器，内部完成 _resetNodeMeta + _resetPending
+      await _saveService.tryLoadNote();
       await _saveService.tryLoadChunks();
       // await _tagService.tryLoadTags();
       final abList = await _saveService.tryLoadAllNotebooks();
