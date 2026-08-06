@@ -298,6 +298,8 @@ class IncrementalSaveService {
   // ── 事件处理 ──
 
   void _onInsert(NodeChangeEvent event) {
+    // 冲突恢复的块（hasError=true）跳过，避免再次入队同步
+    if (_metaFor(event.nodeId).hasError) return;
     if (event.isSubNode) {
       return _onUpdateAttr(
         event.copyWith(
@@ -328,7 +330,9 @@ class IncrementalSaveService {
   }
 
   void _onDelete(NodeChangeEvent event) {
-    _metaFor(event.nodeId).orderKey = null;
+    final meta = _metaFor(event.nodeId);
+    final orderKey = meta.orderKey;
+    meta.orderKey = null;
     if (event.isSubNode) {
       final rootNode = event.rootNode;
       if (rootNode == null) return;
@@ -337,7 +341,6 @@ class IncrementalSaveService {
       );
     }
     // 节点从未上传过（chunkId == null），服务端无此节点，无需删除
-    final meta = _metaFor(event.nodeId);
     if (meta.chunkId == null) {
       _pending.remove(event.nodeId);
       debugPrint('删除未上传节点: ${event.nodeId}，已忽略');
@@ -347,6 +350,10 @@ class IncrementalSaveService {
     _pending[event.nodeId] = _PendingBlock(
       nodeId: event.nodeId,
       chunkId: meta.chunkId,
+      type: event.type,
+      // 保存节点完整内容，删除冲突时可恢复到编辑器
+      deltaJson: _extractDeltaJson(event.node),
+      orderKey: orderKey,
       changeType: NodeChangeType.delete,
       version: meta.version,
     );
@@ -416,10 +423,19 @@ class IncrementalSaveService {
     if (node.attributes.isNotEmpty) {
       // 复制一份 attributes，避免 removeWhere 污染原始数据
       map['data'] = Map<String, dynamic>.from(node.attributes)
-        ..removeWhere((_, value) => value == null);
+        ..removeWhere((_, value) => value == null)
+        // 剔除冲突标记，避免冲突状态持久化到服务端
+        ..remove('chunkError')
+        ..removeWhere(
+          (key, value) => key == blockComponentBackgroundColor &&
+              value == _conflictBgColor,
+        );
     }
     return map;
   }
+
+  /// 冲突块高亮背景色（淡红）
+  static const String _conflictBgColor = '#FFEBEE';
 
   // ── 防抖提交 ──
 
@@ -899,6 +915,7 @@ class IncrementalSaveService {
           failedChunkIds.addAll(result.failCreatedBlocks);
 
           // 将失败的块重新加入 pending 缓存，覆盖已有的
+          final restoredDeleteKeys = <String>[];
           for (final entry in batch.entries) {
             final block = entry.value;
             if (block.chunkId != null &&
@@ -907,16 +924,30 @@ class IncrementalSaveService {
               if (block.changeType == NodeChangeType.insert) {
                 block.chunkId = null;
               }
-              _pending[entry.key] = block;
-              // 在编辑器中标记为红色高亮
-              _markNodeError(entry.key, true);
+              if (block.changeType == NodeChangeType.delete) {
+                // 删除冲突：块已从文档移除，恢复到编辑器并标红
+                await _restoreDeletedBlock(entry.key, block);
+                restoredDeleteKeys.add(entry.key);
+              } else {
+                _pending[entry.key] = block;
+                // 在编辑器中标记为红色高亮
+                _markNodeError(entry.key, true);
+              }
             } else {
               // 成功块：更新/删除的版本号 +1，新插入的保持 1
               if (block.changeType != NodeChangeType.insert) {
                 _updateBlockVersion(entry.key, block);
               }
               _persistChunkId(entry.key, block);
+              // 之前冲突的块这次保存成功，清除红底与"冲突"徽标
+              _clearNodeErrorIfNeeded(entry.key);
             }
+          }
+          // 已恢复的删除块从 batch 移除，避免 _flushPending 的 finally
+          // 重新加入 pending 导致下次重复删除/重复插入
+          for (final key in restoredDeleteKeys) {
+            batch.remove(key);
+            _pending.remove(key);
           }
           // 提示用户刷新
           ToastUtil.warning(
@@ -932,18 +963,31 @@ class IncrementalSaveService {
               _updateBlockVersion(entry.key, entry.value);
             }
             _persistChunkId(entry.key, entry.value);
+            // 之前冲突的块这次保存成功，清除红底与"冲突"徽标
+            _clearNodeErrorIfNeeded(entry.key);
           }
           lastSavedTime.value = DateTime.now();
         }
         return !result.hasConflict;
       } else if (response.code == 409) {
         // 版本冲突，全部失败
+        final restoredDeleteKeys = <String>[];
         for (final entry in batch.entries) {
           final block = entry.value;
           if (block.changeType == NodeChangeType.insert) {
             block.chunkId = null;
           }
-          _pending[entry.key] = block;
+          if (block.changeType == NodeChangeType.delete) {
+            // 删除冲突：恢复到编辑器，避免块丢失
+            await _restoreDeletedBlock(entry.key, block);
+            restoredDeleteKeys.add(entry.key);
+          } else {
+            _pending[entry.key] = block;
+          }
+        }
+        for (final key in restoredDeleteKeys) {
+          batch.remove(key);
+          _pending.remove(key);
         }
         ToastUtil.warning(
           provideContext(),
@@ -982,7 +1026,18 @@ class IncrementalSaveService {
   void _markNodeError(String nodeId, bool hasError) {
     _metaFor(nodeId).hasError = hasError;
     // 同步到编辑器节点属性，触发视觉渲染
-    _updateNodeAttribute(nodeId, {'chunkError': hasError});
+    // 同时设置红色背景（bgColor），让文本块显示冲突高亮
+    _updateNodeAttribute(nodeId, {
+      'chunkError': hasError,
+      blockComponentBackgroundColor: hasError ? _conflictBgColor : null,
+    });
+  }
+
+  /// 块保存成功后，清除之前标记的冲突状态（红底 + "冲突"徽标）
+  void _clearNodeErrorIfNeeded(String nodeId) {
+    if (_metaFor(nodeId).hasError) {
+      _markNodeError(nodeId, false);
+    }
   }
 
   /// 按 nodeId 查找编辑器节点并更新属性
@@ -995,5 +1050,51 @@ class IncrementalSaveService {
     if (node != null) {
       node.updateAttributes(attrs);
     }
+  }
+
+  /// 删除冲突时，把被删的块恢复到编辑器中并标红
+  ///
+  /// 块的完整内容在 [_onDelete] 时已存入 `_PendingBlock.deltaJson`，
+  /// 这里用 `Node.fromJson` 重建节点，按 orderKey 排序插回原位置，
+  /// 并标记 hasError 跳过后续同步，同时设置红色背景提示冲突。
+  Future<void> _restoreDeletedBlock(String nodeId, _PendingBlock block) async {
+    final json = block.deltaJson;
+    if (json == null) return;
+    final restored = Node.fromJson(json);
+    // 注入数据库元数据（chunkId/version/orderKey）
+    restored.updateAttributes({
+      NoteDocumentConvert.attrBlockId: block.chunkId,
+      NoteDocumentConvert.attrBlockVersion: block.version,
+      NoteDocumentConvert.attrBlockOrderKey: block.orderKey,
+    });
+    // 先注册元数据并标记错误：hasError 使 _onInsert 跳过，避免重复入队
+    _metaFor(restored.id)
+      ..chunkId = block.chunkId
+      ..version = block.version
+      ..orderKey = block.orderKey
+      ..hasError = true;
+    restored.updateAttributes({
+      'chunkError': true,
+      blockComponentBackgroundColor: _conflictBgColor,
+    });
+
+    // 按 orderKey 排序找到插入位置
+    final children = editorState.document.root.children;
+    int insertIndex = children.length;
+    if (block.orderKey != null) {
+      for (var i = 0; i < children.length; i++) {
+        final orderKey = children[i]
+            .attributes[NoteDocumentConvert.attrBlockOrderKey] as String?;
+        if (orderKey != null && orderKey.compareTo(block.orderKey!) > 0) {
+          insertIndex = i;
+          break;
+        }
+      }
+    }
+
+    final transaction = editorState.transaction;
+    transaction.insertNode([insertIndex], restored);
+    await editorState.apply(transaction);
+    debugPrint('恢复删除冲突块: ${restored.id} → path [$insertIndex]');
   }
 }

@@ -9,6 +9,7 @@ import 'package:note_for_android/screens/note/mixins/tag_service.dart';
 import 'package:note_for_android/screens/note/widgets/floating_toolbar.dart';
 import 'package:note_for_android/screens/note/widgets/keyboard_safe_toolbar.dart';
 import 'package:note_for_android/screens/note/widgets/note_info_sheet.dart';
+import 'package:note_for_android/screens/note/widgets/conflict_badge_block_builder.dart';
 import 'package:note_for_android/screens/note/widgets/notebook_sheet.dart';
 import 'package:note_for_android/screens/note/widgets/save_status_overlay.dart';
 import 'package:note_for_android/screens/note/widgets/table_toolbar_items.dart';
@@ -547,6 +548,9 @@ class _NoteViewPageState extends State<NoteViewPage> {
                         ),
                         child: AppFlowyEditor(
                           editorState: _editorState,
+                          // 冲突块右上角叠加"冲突"徽标提示
+                          blockComponentBuilders:
+                              buildConflictAwareBlockComponentBuilders(),
                           editorStyle: const EditorStyle.mobile(
                             padding: EdgeInsets.zero,
                           ),
