@@ -93,18 +93,28 @@ class _ConflictBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          color: const Color(0xFFF44336).withValues(alpha: 0.12),
+          color: const Color(0xFFF44336).withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: const Color(0xFFF44336).withValues(alpha: 0.45),
+            color: const Color(0xFFF44336).withValues(alpha: 0.5),
           ),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.warning_amber_rounded, size: 12, color: red),
+            Icon(
+              Icons.warning_amber_rounded,
+              size: 12,
+              color: Color.fromARGB(255, 239, 235, 235),
+            ),
             SizedBox(width: 3),
-            Text('冲突', style: TextStyle(fontSize: 10, color: red)),
+            Text(
+              '冲突',
+              style: TextStyle(
+                fontSize: 10,
+                color: Color.fromARGB(255, 249, 249, 249),
+              ),
+            ),
           ],
         ),
       ),

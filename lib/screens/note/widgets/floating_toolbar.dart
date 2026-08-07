@@ -19,9 +19,15 @@ class EditorFloatingToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // selectionRects 是全局屏幕坐标，而 Positioned.top 是相对 Stack 的本地坐标。
+    // 不转换的话工具栏会被整体下移，出现在选区下方。这里用 Stack 的 RenderBox
+    // 把全局坐标换算成 Stack 本地坐标，让工具栏始终悬浮在选区上方。
+    final RenderBox? stackBox =
+        context.findAncestorRenderObjectOfType<RenderBox>();
     double top = 8;
-    if (selectionRects.isNotEmpty) {
-      top = selectionRects.first.topLeft.dy - 50;
+    if (stackBox != null && selectionRects.isNotEmpty) {
+      final localTopLeft = stackBox.globalToLocal(selectionRects.first.topLeft);
+      top = localTopLeft.dy - 50;
     }
     if (top < 0) top = 8;
 
